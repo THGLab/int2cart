@@ -1,0 +1,49 @@
+general:
+  device: cuda:0
+  output: [local/debug , 1] # root, dir, iter
+
+data:
+  casp_version: 12
+  thinning: 30
+  scn_data_dir: /home/jerry/data2/protein_building/sidechainnet_data
+  validation_similarity_level: 50
+
+bins:
+  bond_length_bin: false
+  backbone_angle_bin: false
+  angle_bin_count: 180
+  n-ca_bin: [0.95, 2.05, 12]
+  ca-c_bin: [0.95, 2.05, 12]
+  c-n_bin: [0.45, 2.05, 17]
+
+model:
+  n_gaussians: 180
+  gaussian_margin: 10
+  gaussian_normalize: True
+  gaussian_factor: 0.5
+
+  recurrent: lstm
+  rec_neurons_num: 200
+  rec_stack_size: 3
+  rec_dropout: 0.1
+
+  n_filter_layers: 2
+  filter_size: 64
+
+
+
+training:
+  preempt: false
+  epochs: 100
+  batch_size: 32
+  lr: 0.001
+  lr_scheduler: null
+  weight_decay: 1.0e-4
+  loss_term_weigths: 1
+
+checkpoint:
+  log: 1
+  val: 1
+  test: 1
+  model: 5
+  verbose: false
