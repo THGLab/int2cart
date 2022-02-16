@@ -1,5 +1,5 @@
 import yaml
-
+import sys
 import torch
 from torch import nn
 from torch.optim import Adam
@@ -15,6 +15,8 @@ from modelling.utils.default_scalers import *
 
 #
 settings_path = 'configs/debug.yml'
+if len(sys.argv) > 1:
+    settings_path = sys.argv[-1]
 settings = yaml.safe_load(open(settings_path, "r"))
 
 device = torch.device(settings['general']['device'])
