@@ -233,14 +233,28 @@ trainer = Trainer(
 )
 
 trainer.print_layers()
-trainer.logger.log_hparams(settings['training'])
-trainer.logger.log_hparams(settings['model'])
 
-trainer.train(
+best_results = trainer.train(
     epochs=settings['training']['epochs'],
     train_dataloader=train,
     val_dataloader=val,
     test_dataloader=test
 )
+
+# Log hyperparameters and the best performance of this run
+run_hparams = settings['training']
+run_hparams.update(settings['model'])
+for hp in list(run_hparams):
+    if type(run_hparams[hp]) in [bool, float, int]:
+        run_hparams['hparams/'+hp] = run_hparams[hp]
+    del run_hparams[hp]
+
+hparam_metrics = {}
+if best_results is not None:
+    hparam_metrics["metrics/loss"] = best_results["val/loss"]
+    hparam_metrics["metrics/rmse_bb_angle"] = best_results["val/rmse_bb_angle"]
+    hparam_metrics["metrics/rmse_sc_tor"] = best_results["val/rmse_sc_tor"]
+    hparam_metrics["metrics/rmse_blens"] = best_results["val/rmse_blens"]
+trainer.logger.log_hparams(run_hparams, hparam_metrics)
 
 print('done!')

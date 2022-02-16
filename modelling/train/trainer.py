@@ -79,10 +79,10 @@ class Trainer:
 
         # logging
         self.logger = Logger(self.output_path, 
-                            ['epoch', 'lr', 'time', 'loss', 'val_loss', 'test_loss',
-                             'tr_err_bb_angle(RMSE)', 'val_err_bb_angle(RMSE)', 'test_err_bb_angle(RMSE)',
-                             'tr_err_sc_tor(RMSE)', 'val_err_sc_tor(RMSE)', 'test_err_sc_tor(RMSE)',
-                             'tr_err_blens(RMSE)', 'val_err_blens(RMSE)', 'test_err_blens(RMSE)'])
+                            ['epoch', 'lr', 'time', 'tr/loss', 'val/loss', 'test/loss',
+                             'tr/rmse_bb_angle', 'val/rmse_bb_angle', 'test/rmse_bb_angle',
+                             'tr/rmse_sc_tor', 'val/rmse_sc_tor', 'test/rmse_sc_tor',
+                             'tr/rmse_blens', 'val/rmse_blens', 'test/rmse_blens'])
         self.epoch = 0  # number of epochs of any steps that model has gone through so far
 
         self.best_val_loss = float("inf")
@@ -303,6 +303,14 @@ class Trainer:
             blens_preds = tensor_to_numpy(torch.cat(preds[9:], axis=-1))
         return angle_preds, blens_preds
 
+    def log_graph(self, save_model, batch):
+        batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
+                        "psi": batch.angs[:, :, 1].to(self.device[0]),
+                        "omega": batch.angs[:, :, 2].to(self.device[0]),
+                        "res_type": torch.argmax(batch.seqs, axis=-1).to(self.device[0]),
+                        "lengths": torch.tensor(batch.lengths)}
+        self.logger.log_graph(save_model, batch_inputs)
+
     def predict_and_evaulate(self, batch):
         batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
                         "psi": batch.angs[:, :, 1].to(self.device[0]),
@@ -347,12 +355,16 @@ class Trainer:
 
         """
         self.model.to(self.device[0])
+        save_model = self.model
         if self.multi_gpu:
             self.model = nn.DataParallel(self.model, device_ids=self.device)
         self._optimizer_to_device()
 
         running_val_loss = []
         last_test_epoch = 0
+        best_epoch_results = None
+
+        has_logged_graph = False
         while 1:
             t0 = time.time()
 
@@ -375,6 +387,9 @@ class Trainer:
             
             s = 1
             for batch in train_dataloader:
+                if not has_logged_graph:
+                    self.log_graph(save_model, batch)
+                    has_logged_graph = True
                 self.optimizer.zero_grad()
                 result = self.predict_and_evaulate(batch)
                 loss = result['loss']
@@ -422,10 +437,6 @@ class Trainer:
                 val_results = self.validate(val_dataloader)
                 val_error = val_results["loss"]
 
-            if self.multi_gpu:
-                save_model = self.model.module
-            else:
-                save_model = self.model
 
             # checkpoint every epoch when preempt is allowed
             if self.preempt:
@@ -447,7 +458,9 @@ class Trainer:
             test_bb_angle_rmse = np.nan
             test_sc_tor_rmse = np.nan
             test_blens_rmse = np.nan
+            new_best = False
             if self.best_val_loss > val_error:
+                new_best = True
                 self.best_val_loss = val_error
 
                 torch.save(save_model,#.state_dict(),
@@ -513,31 +526,35 @@ class Trainer:
                     self.scheduler.step()
                     accum_val_loss = 0.0
 
-            # logging
-            if self.epoch % self.check_log == 0:
-
-                for i, param_group in enumerate(
+            # logging and best result handling
+            for i, param_group in enumerate(
                         self.optimizer.param_groups):
                         # self.scheduler.optimizer.param_groups):
                     old_lr = float(param_group["lr"])
+            epoch_results = {
+                "epoch": self.epoch,
+                "lr": old_lr,
+                "time": time.time() - t0,
+                "tr/loss": running_loss,
+                "val/loss": val_error,
+                "test/loss": test_error,
+                "tr/rmse_bb_angle": rmse_bb_angles,
+                'val/rmse_bb_angle': val_results['bb_angle_rmse'],
+                'test/rmse_bb_angle': test_bb_angle_rmse,
+                "tr/rmse_sc_tor": rmse_sc_tor,
+                'val/rmse_sc_tor': val_results['sc_tor_rmse'],
+                'test/rmse_sc_tor': test_sc_tor_rmse,
+                'tr/rmse_blens': rmse_bonds,
+                'val/rmse_blens': val_results['blens_rmse'],
+                'test/rmse_blens': test_blens_rmse
+            }
 
-                self.logger.log_result({
-                    "epoch": self.epoch,
-                    "lr": old_lr,
-                    "time": time.time() - t0,
-                    "loss": running_loss,
-                    "val_loss": val_error,
-                    "test_loss": test_error,
-                    "tr_err_bb_angle(RMSE)": rmse_bb_angles,
-                    'val_err_bb_angle(RMSE)': val_results['bb_angle_rmse'],
-                    'test_err_bb_angle(RMSE)': test_bb_angle_rmse,
-                    "tr_err_sc_tor(RMSE)": rmse_sc_tor,
-                    'val_err_sc_tor(RMSE)': val_results['sc_tor_rmse'],
-                    'test_err_sc_tor(RMSE)': test_sc_tor_rmse,
-                    'tr_err_blens(RMSE)': rmse_bonds,
-                    'val_err_blens(RMSE)': val_results['blens_rmse'],
-                    'test_err_blens(RMSE)': test_blens_rmse
-                })
+            if new_best:
+                best_epoch_results = epoch_results
+
+            if self.epoch % self.check_log == 0:
+                self.logger.log_result(epoch_results)
+        return best_epoch_results
 
     def log_statistics(self, data_collection):
         with open(os.path.join(self.output_path, "stats.txt"), "w") as f:

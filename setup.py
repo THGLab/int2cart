@@ -38,5 +38,9 @@ if __name__ == "__main__":
             'Intended Audience :: Science/Research',
             'Programming Language :: Python :: 3',
         ],
+        install_requires=[
+            'torch',
+            'future'
+        ],
         zip_safe=False,
     )
