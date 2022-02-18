@@ -12,16 +12,18 @@ from modelling.utils import OnehotDigitizer
 from sidechainnet import load
 from modelling.train import Trainer
 from modelling.utils.default_scalers import *
+from modelling.utils.get_gpu import handle_gpu
 
 #
 settings_path = 'configs/debug.yml'
+debug_mode = True
 if len(sys.argv) > 1:
     settings_path = sys.argv[-1]
+    debug_mode = False
 settings = yaml.safe_load(open(settings_path, "r"))
 
-device = torch.device(settings['general']['device'])
-if type(device) is not list:
-    device = [device]
+device = [torch.device(dev) for dev in handle_gpu(settings['general']['device'])]
+
 
 # data
 data = load(settings['data']['casp_version'],
@@ -231,7 +233,8 @@ trainer = Trainer(
     checkpoint_test=settings['checkpoint']['test'],
     checkpoint_model=settings['checkpoint']['model'],
     verbose=settings['checkpoint']['verbose'],
-    preempt=settings['training']['preempt']
+    preempt=settings['training']['preempt'],
+    debug=debug_mode
 )
 
 trainer.print_layers()

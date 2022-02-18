@@ -40,7 +40,8 @@ class Trainer:
                  training=True,
                  hooks=None,
                  save_test_batch=False,
-                 preempt=False):
+                 preempt=False,
+                 debug=False):
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
@@ -49,6 +50,7 @@ class Trainer:
         self.bin_references = bin_references
         self.device = device
         self.preempt = preempt
+        self.debug = debug
 
         if type(device) is list and len(device) > 1:
             self.multi_gpu = True
@@ -158,6 +160,10 @@ class Trainer:
         os.makedirs(script_out)
         shutil.copyfile(yml_path, os.path.join(script_out,os.path.basename(yml_path)))
         shutil.copyfile(script_name, os.path.join(script_out, os.path.basename(script_name)))
+
+        if self.debug:
+            self.debug_dir = os.path.join(self.output_path, 'debug')
+            os.makedirs(self.debug_dir)
         return last_checkpoint
 
     def _hooks(self, hooks):
@@ -379,6 +385,8 @@ class Trainer:
             rmse_bb_angles = []
             rmse_sc_tor = []
             rmse_bonds = []
+            step_losses = []
+            step_labels = []
             self.model.train()
             self.optimizer.zero_grad()
 
@@ -410,6 +418,10 @@ class Trainer:
                 rmse_sc_tor.append(result['sidechain_torsion_rmse'])
                 rmse_bonds.append(result['blens_rmse'])
 
+                if self.debug:
+                    step_losses.append(current_loss)
+                    step_labels.append(result['ids'])
+
 
                 if self.verbose:
                     print(datetime.now(),
@@ -424,6 +436,11 @@ class Trainer:
             rmse_bb_angles = np.mean(rmse_bb_angles[-100:])
             rmse_sc_tor = np.mean(rmse_sc_tor[-100:])
             rmse_bonds = np.mean(rmse_bonds[-100:])
+
+            # save debug info when necessary
+            if self.debug:
+                torch.save({"step_losses": step_losses,
+                "step_ids": step_labels}, os.path.join(self.debug_dir, str(self.epoch) + ".pkl"))
 
             # plots
             self.plot_grad_flow()
