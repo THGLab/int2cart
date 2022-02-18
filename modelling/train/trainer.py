@@ -399,6 +399,8 @@ class Trainer:
                     # self.log_graph(save_model, batch)
                     has_logged_graph = True
                 self.optimizer.zero_grad()
+                last_state_dict = self.model.state_dict()
+                last_optimizer_state_dict = self.optimizer.state_dict()
                 result = self.predict_and_evaulate(batch)
                 loss = result['loss']
                 loss.backward()
@@ -421,6 +423,18 @@ class Trainer:
                 if self.debug:
                     step_losses.append(current_loss)
                     step_labels.append(result['ids'])
+                    if current_loss > step_losses[-1] + 100:
+                        current_model = self.model
+                        current_optimizer = self.optimizer
+                        current_batch_data = batch
+                        torch.save({
+                            "last_model_state": last_state_dict,
+                            "model": current_model,
+                            "last_optimizer_state": last_optimizer_state_dict,
+                            "optimizer": current_optimizer,
+                            "batch": current_batch_data
+                        }, os.path.join(self.debug_dir, "loss_explosion.pkl"))
+                        raise RuntimeError("Loss explosion occurred!")
 
 
                 if self.verbose:
