@@ -396,7 +396,7 @@ class Trainer:
             s = 1
             for batch in train_dataloader:
                 if not has_logged_graph:
-                    self.log_graph(save_model, batch)
+                    # self.log_graph(save_model, batch)
                     has_logged_graph = True
                 self.optimizer.zero_grad()
                 result = self.predict_and_evaulate(batch)

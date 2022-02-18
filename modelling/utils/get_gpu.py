@@ -28,4 +28,7 @@ def handle_gpu(gpu_requirements):
             for index in idxes.copy():
                 if gpu_df.loc[index,"usage"] < 0.1:
                     idxes.remove(index)
-            return ["cuda:" + str(idxes)]
+            if len(idxes) >= 1:
+                return ["cuda:" + str(idxes[0])]
+            else:
+                raise RuntimeError("No available GPUs!")
