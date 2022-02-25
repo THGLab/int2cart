@@ -397,6 +397,7 @@ class Trainer:
             s = 1
             last_state_dict = None
             last_optimizer_state_dict = None
+            last_batch = second_last_batch = None
             for batch in train_dataloader:
                 if not has_logged_graph:
                     # self.log_graph(save_model, batch)
@@ -428,7 +429,7 @@ class Trainer:
                 if self.debug:
                     step_losses.append(current_loss)
                     step_labels.append(result['ids'])
-                    if current_loss > step_losses[-1] + 100:
+                    if current_loss > 100:
                         current_model = self.model
                         current_optimizer = self.optimizer
                         current_batch_data = batch
@@ -439,10 +440,14 @@ class Trainer:
                             "second_last_optimizer_state": second_last_optimizer_state_dict,
                             "last_optimizer_state": last_optimizer_state_dict,
                             "optimizer": current_optimizer,
-                            "batch": current_batch_data
+                            "batch": current_batch_data,
+                            "last_batch": last_batch,
+                            "second_last_batch": second_last_batch
                         }, os.path.join(self.debug_dir, "loss_explosion.pkl"))
                         raise RuntimeError("Loss explosion occurred!")
 
+                second_last_batch = last_batch
+                last_batch = deepcopy(batch)
 
                 if self.verbose:
                     print(datetime.now(),
