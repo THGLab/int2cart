@@ -1,3 +1,4 @@
+from copy import deepcopy
 import os
 import numpy as np
 import pandas as pd
@@ -394,13 +395,17 @@ class Trainer:
                 train_dataloader = tqdm(train_dataloader)
             
             s = 1
+            last_state_dict = None
+            last_optimizer_state_dict = None
             for batch in train_dataloader:
                 if not has_logged_graph:
                     # self.log_graph(save_model, batch)
                     has_logged_graph = True
                 self.optimizer.zero_grad()
-                last_state_dict = self.model.state_dict()
-                last_optimizer_state_dict = self.optimizer.state_dict()
+                second_last_state_dict = last_state_dict
+                second_last_optimizer_state_dict = last_optimizer_state_dict
+                last_state_dict = deepcopy(self.model.state_dict())
+                last_optimizer_state_dict = deepcopy(self.optimizer.state_dict())
                 result = self.predict_and_evaulate(batch)
                 loss = result['loss']
                 loss.backward()
@@ -428,8 +433,10 @@ class Trainer:
                         current_optimizer = self.optimizer
                         current_batch_data = batch
                         torch.save({
+                            "second_last_model_state": second_last_state_dict,
                             "last_model_state": last_state_dict,
                             "model": current_model,
+                            "second_last_optimizer_state": second_last_optimizer_state_dict,
                             "last_optimizer_state": last_optimizer_state_dict,
                             "optimizer": current_optimizer,
                             "batch": current_batch_data
