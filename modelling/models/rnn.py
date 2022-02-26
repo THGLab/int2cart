@@ -747,7 +747,7 @@ class RecurrentModel(nn.Module):
                                     dropout=rec_dropout,
                                     bidirectional=True)
         if use_layernorm:
-            self.norm = nn.LayerNorm(rec_neurons_num)
+            self.norm = nn.LayerNorm(rec_neurons_num * 2)
         else:
             self.norm = None
 
