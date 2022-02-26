@@ -698,7 +698,8 @@ class RecurrentModel(nn.Module):
                  res_embedding_size,
                  rec_stack_size,
                  rec_neurons_num,
-                 rec_dropout
+                 rec_dropout,
+                 use_layernorm
                  ):
         """
         GRU Recurrent units for the language model.
@@ -745,6 +746,10 @@ class RecurrentModel(nn.Module):
                                      batch_first=False,
                                     dropout=rec_dropout,
                                     bidirectional=True)
+        if use_layernorm:
+            self.norm = nn.LayerNorm(rec_neurons_num)
+        else:
+            self.norm = None
 
         # # linear mapping
         # self.linear = nn.Linear(rec_neurons_num, out_dimension)
@@ -818,6 +823,10 @@ class RecurrentModel(nn.Module):
 
         x, len_unpacked = pad_packed_sequence(packed_x)
         x = torch.moveaxis(x, 0, 1)
+
+        # apply layernorm when needed
+        if self.norm is not None:
+            x = self.norm(x)
 
         # return latent representation
         return x

@@ -54,7 +54,8 @@ rnn_encoder = RecurrentModel(recurrent=settings['model']['recurrent'],
                             res_embedding_size=settings['model']['filter_size'],
                             rec_stack_size=settings['model']['rec_stack_size'],
                             rec_neurons_num=settings['model']['rec_neurons_num'] // 2,  # bidirectional
-                            rec_dropout=settings['model']['rec_dropout'])
+                            rec_dropout=settings['model']['rec_dropout'],
+                            use_layernorm=settings['model'].get('use_layernorm', False))
 
 # prepare output heads
 if settings['bins']['bond_length_bin']:
