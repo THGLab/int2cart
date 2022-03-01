@@ -291,7 +291,7 @@ class Trainer:
 
     def convert_prediction(self, preds):
         if self.backbone_angle_bin:
-            angle_preds = max_sampling(torch.stack(preds[:9], axis=-1),
+            angle_preds = max_sampling(torch.stack(preds[:9], axis=2),
                                     self.bin_references["angles"])
         else:
             backbone_angle_preds = tensor_to_numpy(torch.cat(preds[:3], axis=-1)) * 180/np.pi
