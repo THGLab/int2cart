@@ -426,10 +426,8 @@ class Trainer:
                 rmse_sc_tor.append(result['sidechain_torsion_rmse'])
                 rmse_bonds.append(result['blens_rmse'])
 
-                if self.debug:
-                    step_losses.append(current_loss)
-                    step_labels.append(result['ids'])
-                    if current_loss > 100:
+                if current_loss > 100:
+                    if self.debug:
                         current_model = self.model
                         current_optimizer = self.optimizer
                         current_batch_data = batch
@@ -444,7 +442,12 @@ class Trainer:
                             "last_batch": last_batch,
                             "second_last_batch": second_last_batch
                         }, os.path.join(self.debug_dir, "loss_explosion.pkl"))
-                        raise RuntimeError("Loss explosion occurred!")
+                    return best_epoch_results, False
+
+                if self.debug:
+                    step_losses.append(current_loss)
+                    step_labels.append(result['ids'])
+                    
 
                 second_last_batch = last_batch
                 last_batch = deepcopy(batch)
@@ -597,7 +600,7 @@ class Trainer:
 
             if self.epoch % self.check_log == 0:
                 self.logger.log_result(epoch_results)
-        return best_epoch_results
+        return best_epoch_results, True
 
     def log_statistics(self, data_collection):
         with open(os.path.join(self.output_path, "stats.txt"), "w") as f:

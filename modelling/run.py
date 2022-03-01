@@ -173,7 +173,7 @@ def compute_loss(preds, batch):
         c_n_blens_targets = batch.blens[:, :, 2]
         c_n_blens_loss = categorical_loss(c_n_blens_pred_raw, c_n_blens_targets, c_n_blens_digitizer)
         
-        masked_blens_loss = torch.cat([n_ca_blens_loss, ca_c_blens_loss, c_n_blens_loss], dim=-1)
+        masked_blens_loss = torch.stack([n_ca_blens_loss, ca_c_blens_loss, c_n_blens_loss], dim=-1)
     else:
         blens_preds = torch.cat(preds[9:], axis=-1)
         blens_targets = batch.blens
@@ -240,7 +240,7 @@ trainer = Trainer(
 
 trainer.print_layers()
 
-best_results = trainer.train(
+best_results, succeeded = trainer.train(
     epochs=settings['training']['epochs'],
     train_dataloader=train,
     val_dataloader=val,
@@ -263,4 +263,7 @@ if best_results is not None:
     hparam_metrics["metrics/rmse_blens"] = best_results["val/rmse_blens"]
 trainer.logger.log_hparams(run_hparams, hparam_metrics)
 
-print('done!')
+if succeeded:
+    print('Done!')
+else:
+    print('Error during training!')
