@@ -13,3 +13,4 @@ from modelling.layers.gaussian_smearing import *
 from modelling.layers.representations.many_body import *
 
 from modelling.layers.transitions.inverse_scaler import *
+from modelling.layers.variable_length_batchnorm import *

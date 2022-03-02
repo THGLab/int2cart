@@ -3,7 +3,7 @@ import torch
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from modelling.layers import ScaleShift, Standardize, Dense, shifted_softplus, GaussianSmearing
+from modelling.layers import ScaleShift, Standardize, Dense, shifted_softplus, GaussianSmearing, VariableLengthBatchNorm
 from modelling.models.mlp import MLP
 
 
@@ -747,7 +747,8 @@ class RecurrentModel(nn.Module):
                                     dropout=rec_dropout,
                                     bidirectional=True)
         if use_layernorm:
-            self.norm = nn.LayerNorm(rec_neurons_num * 2)
+            # self.norm = nn.LayerNorm(rec_neurons_num * 2)
+            self.norm = VariableLengthBatchNorm(rec_neurons_num * 2)
         else:
             self.norm = None
 
@@ -826,7 +827,7 @@ class RecurrentModel(nn.Module):
 
         # apply layernorm when needed
         if self.norm is not None:
-            x = self.norm(x)
+            x = self.norm(x, inputs['lengths'])
 
         # return latent representation
         return x
