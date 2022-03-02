@@ -699,7 +699,7 @@ class RecurrentModel(nn.Module):
                  rec_stack_size,
                  rec_neurons_num,
                  rec_dropout,
-                 use_layernorm
+                 use_layernorm=False
                  ):
         """
         GRU Recurrent units for the language model.

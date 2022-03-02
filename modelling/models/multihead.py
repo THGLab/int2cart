@@ -17,8 +17,9 @@ class MultiHeadModel(nn.Module):
 
     def forward(self, inputs):
         latent = self.encoder(inputs)
+        lengths = inputs["lengths"]
         if self._decoder_type is list:
-            return [decoder(latent) for decoder in self.decoders]
+            return [decoder(latent, lengths) for decoder in self.decoders]
         elif self._decoder_type is dict:
-            return {key: self.decoders[key](latent) for key in self.decoders}
+            return {key: self.decoders[key](latent, lengths) for key in self.decoders}
 

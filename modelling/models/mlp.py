@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.autograd import grad
 
-from modelling.layers import Dense, shifted_softplus
+from modelling.layers import Dense, shifted_softplus, VariableLengthBatchNorm
 
 
 class MLP(nn.Module):
@@ -25,9 +25,11 @@ class MLP(nn.Module):
 
     def __init__(
         self, n_in, n_out, n_hidden=None, n_layers=2, activation=shifted_softplus,
-            out_activation=None
+            out_activation=None, use_batchnorm=False
     ):
         super(MLP, self).__init__()
+        self.n_layers = n_layers
+        self.use_batchnorm = use_batchnorm
         # get list of number of nodes in input, hidden & output layers
         if n_hidden is None:
             c_neurons = n_in
@@ -44,16 +46,20 @@ class MLP(nn.Module):
             n_layers = len(self.n_neurons)-1
 
         # assign a Dense layer (with activation function) to each hidden layer
-        layers = [
-            Dense(self.n_neurons[i], self.n_neurons[i + 1], activation=activation)
-            for i in range(n_layers - 1)
-        ]
+        dense_layers = []
+        bn_layers = []
+        for i in range(n_layers - 1):
+            dense_layers.append(Dense(self.n_neurons[i], self.n_neurons[i + 1], activation=activation))
+            if use_batchnorm:
+                bn_layers.append(VariableLengthBatchNorm(self.n_neurons[i + 1]))
         # assign a Dense layer (without activation function) to the output layer
-        layers.append(Dense(self.n_neurons[-2], self.n_neurons[-1], activation=out_activation))
+        dense_layers.append(Dense(self.n_neurons[-2], self.n_neurons[-1], activation=out_activation))
         # put all layers together to make the network
-        self.out_net = nn.Sequential(*layers)
+        self.dense_layers = nn.ModuleList(dense_layers)
+        if use_batchnorm:
+            self.bn_layers = nn.ModuleList(bn_layers)
 
-    def forward(self, inputs):
+    def forward(self, inputs, lengths=None):
         """Compute neural network output.
 
         Args:
@@ -63,4 +69,10 @@ class MLP(nn.Module):
             torch.Tensor: network output.
 
         """
-        return self.out_net(inputs)
+        x = inputs
+        for i in range(self.n_layers - 1):
+            x = self.dense_layers[i](x)
+            if self.use_batchnorm:
+                x = self.bn_layers[i](x, lengths)
+        y = self.dense_layers[-1](x)
+        return y
