@@ -11,7 +11,7 @@ from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau, LambdaLR
 from torch import nn
 from datetime import datetime
-from modelling.train.metrics import rmse
+from modelling.train.metrics import rmse, structure_rmsd
 
 from modelling.utils import Logger, max_sampling, tensor_to_numpy
 from modelling.utils.plotting import plot_scatter
@@ -32,6 +32,7 @@ class Trainer:
                  lr_scheduler,
                  bond_length_bin,
                  backbone_angle_bin,
+                 mode,
                  bin_references=None,
                  checkpoint_log=1,
                  checkpoint_val=1,
@@ -58,6 +59,7 @@ class Trainer:
         else:
             self.multi_gpu = False
         self.verbose = verbose
+        self.mode = mode
 
 
         # outputs
@@ -81,12 +83,15 @@ class Trainer:
         self.check_model = checkpoint_model
 
         # logging
-        self.logger = Logger(self.output_path, 
-                            ['epoch', 'lr', 'time', 'tr/loss', 'val/loss', 'test/loss',
+        log_columns = ['epoch', 'lr', 'time', 'tr/loss', 'val/loss', 'test/loss',
                              'tr/rmse_bb_angle', 'val/rmse_bb_angle', 'test/rmse_bb_angle',
                              'tr/rmse_sc_tor', 'val/rmse_sc_tor', 'test/rmse_sc_tor',
-                             'tr/rmse_blens', 'val/rmse_blens', 'test/rmse_blens'])
+                             'tr/rmse_blens', 'val/rmse_blens', 'test/rmse_blens']
+        if mode == 'building':
+            log_columns += ['tr/structure_rmsd', 'val/structure_rmsd', 'test/structure_rmsd']                             
+        self.logger = Logger(self.output_path, log_columns)
         self.epoch = 0  # number of epochs of any steps that model has gone through so far
+        self.rmsd_tracker = pd.DataFrame()
 
         self.best_val_loss = float("inf")
         self.save_test_batch = save_test_batch
@@ -255,6 +260,7 @@ class Trainer:
         blens_preds = []
         angle_targets = []
         blens_targets = []
+        structure_rmsds = []
         labels = []
 
         for batch in tqdm(data_loader):
@@ -265,6 +271,8 @@ class Trainer:
             blens_preds.extend(results['blens_preds'])
             angle_targets.extend(results['angle_targets'])
             blens_targets.extend(results['blens_targets'])
+            if self.mode == "building":
+                structure_rmsds.extend(results['structure_rmsds'])
             labels.extend(results["ids"])
 
         angle_preds = np.concatenate(angle_preds, axis=0)
@@ -287,6 +295,10 @@ class Trainer:
         outputs["sc_tor_rmse"] = sc_tor_rmse
         outputs["blens_rmse"] = blens_rmse
         outputs["labels"] = labels
+
+        if self.mode == 'building':
+            outputs['structure_rmsds'] = structure_rmsds
+            outputs['mean_structure_rmsd'] = np.mean(structure_rmsds)
         return outputs
 
     def convert_prediction(self, preds):
@@ -325,21 +337,38 @@ class Trainer:
                         "res_type": torch.argmax(batch.seqs, axis=-1).to(self.device[0]),
                         "lengths": batch.lengths}
         preds = self.model(batch_inputs)
-        loss = self.loss_fn(preds, batch)
+        if self.mode == "scalar":
+            loss = self.loss_fn(preds, batch)
+        elif self.mode == "building":
+            pred_dmats = preds["dist_mats"]
+            pred_coords = preds["coords"]
+            preds = preds["predictions"]
+            loss = self.loss_fn(pred_dmats, batch)
 
         angle_preds, blens_preds = self.convert_prediction(preds)
         backbone_angle_rmse = rmse(angle_preds[:, :, :3], batch.angs[:, :, 3:6] * 180 / np.pi, periodic=True)
         sidechain_torsion_rmse = rmse(angle_preds[:, :, 3:], batch.angs[:, :, 6:] * 180 / np.pi, periodic=True)
         blens_rmse = rmse(blens_preds, batch.blens)
-        return {"loss": loss,
-                "angle_preds": angle_preds,
-                "blens_preds": blens_preds,
-                "angle_targets": tensor_to_numpy(batch.angs[:,:,3:]),
-                "blens_targets": tensor_to_numpy(batch.blens),
-                "backbone_angle_rmse": backbone_angle_rmse,
-                "sidechain_torsion_rmse": sidechain_torsion_rmse,
-                "blens_rmse": blens_rmse,
-                "ids": batch.pids}
+
+        results = {"loss": loss,
+                   "angle_preds": angle_preds,
+                   "blens_preds": blens_preds,
+                   "angle_targets": tensor_to_numpy(batch.angs[:,:,3:]),
+                   "blens_targets": tensor_to_numpy(batch.blens),
+                   "backbone_angle_rmse": backbone_angle_rmse,
+                   "sidechain_torsion_rmse": sidechain_torsion_rmse,
+                   "blens_rmse": blens_rmse,
+                   "ids": batch.pids}
+
+        if self.mode == "building":
+            structure_rmsds = structure_rmsd(pred_coords, batch.crds, batch.lengths, False)
+            structure_rmsd_mean = np.mean(structure_rmsds)
+            results.update({
+                "structure_rmsds": structure_rmsds,
+                "mean_structure_rmsd": structure_rmsd_mean
+            })
+        
+        return results
 
     def train(self,
               epochs,
@@ -372,6 +401,17 @@ class Trainer:
         best_epoch_results = None
 
         has_logged_graph = False
+
+        # evaluate test performance prior to training when building model
+        if test_dataloader is not None and self.mode == 'building':
+            test_results = self.validate(test_dataloader)
+            test_struc_rmsd = test_results['mean_structure_rmsd']
+            iteration_rmsds = {'epoch': self.epoch}
+            iteration_rmsds.update({pdb_name: rmsd for pdb_name, rmsd in zip(test_results["labels"], test_results['structure_rmsds'])})
+            self.rmsd_tracker = self.rmsd_tracker.append(iteration_rmsds, ignore_index=True)
+            self.rmsd_tracker.to_csv(os.path.join(self.output_path, "test_protein_rmsds.csv"))
+
+
         while 1:
             t0 = time.time()
 
@@ -386,6 +426,7 @@ class Trainer:
             rmse_bb_angles = []
             rmse_sc_tor = []
             rmse_bonds = []
+            structure_rmsds = []
             step_losses = []
             step_labels = []
             self.model.train()
@@ -425,7 +466,9 @@ class Trainer:
                 rmse_bb_angles.append(result['backbone_angle_rmse'])
                 rmse_sc_tor.append(result['sidechain_torsion_rmse'])
                 rmse_bonds.append(result['blens_rmse'])
-
+                if self.mode == "building":
+                    structure_rmsds.append(result['mean_structure_rmsd'])
+                print(current_loss)
                 if current_loss > 100:
                     if self.debug:
                         current_model = self.model
@@ -442,7 +485,8 @@ class Trainer:
                             "last_batch": last_batch,
                             "second_last_batch": second_last_batch
                         }, os.path.join(self.debug_dir, "loss_explosion.pkl"))
-                    return best_epoch_results, False
+                    else:
+                        return best_epoch_results, False
 
                 if self.debug:
                     step_losses.append(current_loss)
@@ -465,6 +509,8 @@ class Trainer:
             rmse_bb_angles = np.mean(rmse_bb_angles[-100:])
             rmse_sc_tor = np.mean(rmse_sc_tor[-100:])
             rmse_bonds = np.mean(rmse_bonds[-100:])
+            if self.mode == 'building':
+                structure_rmsds = np.mean(structure_rmsds[-100:])
 
             # save debug info when necessary
             if self.debug:
@@ -504,6 +550,7 @@ class Trainer:
             test_bb_angle_rmse = np.nan
             test_sc_tor_rmse = np.nan
             test_blens_rmse = np.nan
+            test_struc_rmsd = np.nan
             new_best = False
             if self.best_val_loss > val_error:
                 new_best = True
@@ -560,6 +607,14 @@ class Trainer:
                     last_test_epoch = self.epoch
                     # np.save(os.path.join(self.val_out_path, 'test_Ei_epoch%i'%self.epoch), outputs['Ei'])
 
+                    # save rmsd tracking
+                    if self.mode == 'building':
+                        test_struc_rmsd = test_results['mean_structure_rmsd']
+                        iteration_rmsds = {'epoch': self.epoch}
+                        iteration_rmsds.update({pdb_name: rmsd for pdb_name, rmsd in zip(test_results["labels"], test_results['structure_rmsds'])})
+                        self.rmsd_tracker = self.rmsd_tracker.append(iteration_rmsds, ignore_index=True)
+                        self.rmsd_tracker.to_csv(os.path.join(self.output_path, "test_protein_rmsds.csv"))
+
             # learning rate decay
             if self.lr_scheduler is not None:
                 if self.lr_scheduler[0] == 'plateau':
@@ -594,6 +649,13 @@ class Trainer:
                 'val/rmse_blens': val_results['blens_rmse'],
                 'test/rmse_blens': test_blens_rmse
             }
+
+            if self.mode == 'building':
+                epoch_results.update({
+                    'tr/structure_rmsd': structure_rmsds,
+                    'val/structure_rmsd': val_results['mean_structure_rmsd'],
+                    'test/structure_rmsd': test_struc_rmsd
+                })
 
             if new_best:
                 best_epoch_results = epoch_results
