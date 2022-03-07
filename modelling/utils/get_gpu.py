@@ -32,3 +32,5 @@ def handle_gpu(gpu_requirements):
                 return ["cuda:" + str(idxes[0])]
             else:
                 raise RuntimeError("No available GPUs!")
+    else:
+        return gpu_requirements
