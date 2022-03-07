@@ -21,13 +21,17 @@ def rmse(preds, targets, mask='auto', periodic=False):
     else:
         return np.sqrt(np.mean(se))
 
-def structure_rmsd(pred_coord_set, target_coord_set, seq_lens, calc_mean=True):
+def structure_rmsd(pred_coord_set, target_coord_set, seq_lens, calc_mean=True, build_range=None):
     rmsds = []
     pred_coord_set = tensor_to_numpy(pred_coord_set)
     target_coord_set = tensor_to_numpy(target_coord_set)
     for i in range(len(seq_lens)):
         pred_coord_i = pred_coord_set[i][:4 * seq_lens[i]]
-        target_coord_i = target_coord_set[i][np.concatenate([np.arange(i*14,i*14+4) for i in range(seq_lens[i])])]
+        if build_range is None:
+            length_range = range(seq_lens[i])
+        else:
+            length_range = range(*build_range[i])
+        target_coord_i = target_coord_set[i][np.concatenate([np.arange(i*14,i*14+4) for i in length_range])]
         superimposer = SVDSuperimposer()
         superimposer.set(pred_coord_i, target_coord_i)
         superimposer.run()

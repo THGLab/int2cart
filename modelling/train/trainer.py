@@ -43,7 +43,8 @@ class Trainer:
                  hooks=None,
                  save_test_batch=False,
                  preempt=False,
-                 debug=False):
+                 debug=False,
+                 build_block_size=None):
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
@@ -53,6 +54,7 @@ class Trainer:
         self.device = device
         self.preempt = preempt
         self.debug = debug
+        self.build_block_size = build_block_size
 
         if type(device) is list and len(device) > 1:
             self.multi_gpu = True
@@ -330,12 +332,18 @@ class Trainer:
                         "lengths": torch.tensor(batch.lengths)}
         self.logger.log_graph(save_model, batch_inputs)
 
-    def predict_and_evaulate(self, batch):
+    def predict_and_evaulate(self, batch, build_by_block=None):
         batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
                         "psi": batch.angs[:, :, 1].to(self.device[0]),
                         "omega": batch.angs[:, :, 2].to(self.device[0]),
                         "res_type": torch.argmax(batch.seqs, axis=-1).to(self.device[0]),
                         "lengths": batch.lengths}
+        build_range = None
+        if build_by_block is not None:
+            build_start = [np.random.randint(0, max(l - build_by_block, 1)) for l in batch.lengths]
+            build_range = [(start, min(start + build_by_block, l)) for start, l in zip(build_start, batch.lengths)]
+            batch_inputs.update({"build_range": build_range})
+
         preds = self.model(batch_inputs)
         if self.mode == "scalar":
             loss = self.loss_fn(preds, batch)
@@ -343,7 +351,7 @@ class Trainer:
             pred_dmats = preds["dist_mats"]
             pred_coords = preds["coords"]
             preds = preds["predictions"]
-            loss = self.loss_fn(pred_dmats, batch)
+            loss = self.loss_fn(pred_dmats, batch, build_range)
 
         angle_preds, blens_preds = self.convert_prediction(preds)
         backbone_angle_rmse = rmse(angle_preds[:, :, :3], batch.angs[:, :, 3:6] * 180 / np.pi, periodic=True)
@@ -361,7 +369,7 @@ class Trainer:
                    "ids": batch.pids}
 
         if self.mode == "building":
-            structure_rmsds = structure_rmsd(pred_coords, batch.crds, batch.lengths, False)
+            structure_rmsds = structure_rmsd(pred_coords, batch.crds, batch.lengths, False, build_range)
             structure_rmsd_mean = np.mean(structure_rmsds)
             results.update({
                 "structure_rmsds": structure_rmsds,
@@ -448,7 +456,7 @@ class Trainer:
                 second_last_optimizer_state_dict = last_optimizer_state_dict
                 last_state_dict = deepcopy(self.model.state_dict())
                 last_optimizer_state_dict = deepcopy(self.optimizer.state_dict())
-                result = self.predict_and_evaulate(batch)
+                result = self.predict_and_evaulate(batch, self.build_block_size)
                 loss = result['loss']
                 loss.backward()
                 if clip_grad>0:
@@ -468,7 +476,6 @@ class Trainer:
                 rmse_bonds.append(result['blens_rmse'])
                 if self.mode == "building":
                     structure_rmsds.append(result['mean_structure_rmsd'])
-                print(current_loss)
                 if current_loss > 100:
                     if self.debug:
                         current_model = self.model

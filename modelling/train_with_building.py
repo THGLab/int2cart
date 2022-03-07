@@ -91,7 +91,8 @@ trainer = Trainer(
     verbose=settings['checkpoint']['verbose'],
     preempt=settings['training']['preempt'],
     debug=debug_mode,
-    mode="building"
+    mode="building",
+    build_block_size=settings['training'].get('build_block_size', None)
 )
 
 trainer.print_layers()

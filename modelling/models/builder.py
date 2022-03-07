@@ -52,14 +52,23 @@ class BackboneBuilder(nn.Module):
         all_blens = torch.cat(predictions[-3:], dim=-1)
 
         batch_size = len(inputs["lengths"])
-        max_len = max(inputs['lengths'])
+        if "build_range" in inputs:
+            max_len = max([inputs["build_range"][i][1] - inputs["build_range"][i][0] for i in range(batch_size)])
+        else:
+            max_len = max(inputs['lengths'])
         result = torch.zeros((batch_size, max_len*4, 3), device=inputs["phi"].device)
         dist_mats = []
         for i in range(len(inputs['lengths'])):
             sequence = "".join([AA_MAP_INV[n] for n in inputs["res_type"][i][:inputs['lengths'][i]].cpu().numpy()])
-            backbone_coord_indices = torch.cat([torch.arange(i*14,i*14+4) for i in range(len(sequence))])
             angles = all_angles[i]
             bond_lengths = all_blens[i]
+            if "build_range" in inputs:
+                sl = slice(inputs["build_range"][i][0], inputs["build_range"][i][1])
+                sequence = sequence[sl]
+                angles = angles[sl]
+                bond_lengths = bond_lengths[sl]
+            backbone_coord_indices = torch.cat([torch.arange(i*14,i*14+4) for i in range(len(sequence))])
+
             builder = StructureBuilder(sequence, ang=angles, bbb_len=bond_lengths, device=angles.device)
             coords = builder.build(with_sidechain=False)
             backbone_coords = coords[backbone_coord_indices]
