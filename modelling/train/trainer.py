@@ -493,7 +493,8 @@ class Trainer:
                             "second_last_batch": second_last_batch
                         }, os.path.join(self.debug_dir, "loss_explosion.pkl"))
                     else:
-                        return best_epoch_results, False
+                        # return best_epoch_results, False
+                        print("Warning! Large loss occured:", current_loss)
 
                 if self.debug:
                     step_losses.append(current_loss)
