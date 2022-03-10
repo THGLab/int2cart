@@ -57,7 +57,8 @@ loss_fn = prepare_losses(settings,
                          angle_digitizer, 
                          n_ca_blens_digitizer,
                          ca_c_blens_digitizer,
-                         c_n_blens_digitizer)
+                         c_n_blens_digitizer,
+                         rescale_by_length=settings['training'].get('rescale_loss_by_lengths', False))
 
 
 # training

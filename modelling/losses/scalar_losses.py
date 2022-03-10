@@ -23,7 +23,7 @@ def numerical_loss(raw_predictions, raw_targets, scaler):
     masked_loss = mask * rescaled_difference ** 2
     return masked_loss
 
-def prepare_losses(settings, angle_digitizer, n_ca_blens_digitizer, ca_c_blens_digitizer, c_n_blens_digitizer):
+def prepare_losses(settings, angle_digitizer, n_ca_blens_digitizer, ca_c_blens_digitizer, c_n_blens_digitizer, rescale_by_length=False):
     
     loss_term_weights = settings['training']['loss_term_weigths']
     if type(loss_term_weights) is not list:
@@ -81,6 +81,9 @@ def prepare_losses(settings, angle_digitizer, n_ca_blens_digitizer, ca_c_blens_d
         mask = batch.msks.to(device)
         weighted_loss = torch.sum(torch.cat([masked_angle_loss, masked_blens_loss], dim=-1) * \
             torch.tensor(loss_term_weights).to(device), dim=-1)
+        if rescale_by_length:
+            length_scaler = torch.tensor(batch.lengths, device=device)[:, None] / 100
+            weighted_loss = weighted_loss * length_scaler
         loss = torch.sum((weighted_loss * mask) / torch.sum(mask + 1e-8))
 
         # print('batch total loss:', loss.detach().cpu().numpy())
