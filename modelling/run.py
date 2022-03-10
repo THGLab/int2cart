@@ -2,7 +2,7 @@ import yaml
 import sys
 import torch
 from torch import nn
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 import numpy as np
 
 from modelling.models import get_model
@@ -40,9 +40,20 @@ model = get_model(settings)
 
 
 # optimizer
-optimizer = Adam(model.parameters(),
-                 lr=settings['training']['lr'],
-                 weight_decay=settings['training']['weight_decay'])
+optimizer = settings['training'].get('optimizer', "Adam")
+if optimizer.lower() == 'adam':
+    optimizer = Adam(model.parameters(),
+                    lr=settings['training']['lr'],
+                    weight_decay=settings['training']['weight_decay'])
+elif optimizer.lower() == 'sgd':
+    momentum = settings['training'].get('momentum', 0)
+    nestrov = settings['training'].get('nestrov', False)
+    optimizer = SGD(model.parameters(),
+                    lr=settings['training']['lr'],
+                    weight_decay=settings['training']['weight_decay'],
+                    momentum=momentum,
+                    nesterov=nestrov)
+
 
 
 
