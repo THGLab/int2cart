@@ -79,6 +79,10 @@ class Logger:
         """log the pytorch computation graph"""
         self._summ_writer.add_graph(model, model_input)
 
+    def log_hist(self, values, name, step):
+        values = np.array(values)
+        self._summ_writer.add_histogram(name, values, step)
+
     def dump_scalars(self, log_path=None):
         log_path = os.path.join(self._log_dir, "scalar_data.json") if log_path is None else log_path
         self._summ_writer.export_scalars_to_json(log_path)

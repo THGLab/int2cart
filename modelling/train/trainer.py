@@ -23,6 +23,7 @@ class Trainer:
     """
     def __init__(self,
                  model,
+                 builder,
                  loss_fn,
                  optimizer,
                  device,
@@ -46,6 +47,7 @@ class Trainer:
                  debug=False,
                  build_block_size=None):
         self.model = model
+        self.builder = builder
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self.bond_length_bin = bond_length_bin
@@ -267,14 +269,13 @@ class Trainer:
 
         for batch in tqdm(data_loader):
             with torch.no_grad():
-                results = self.predict_and_evaulate(batch)
+                results = self.predict_and_evaulate(batch, use_builder=True)
             losses.append(tensor_to_numpy(results['loss']))
             angle_preds.extend(results['angle_preds'])
             blens_preds.extend(results['blens_preds'])
             angle_targets.extend(results['angle_targets'])
             blens_targets.extend(results['blens_targets'])
-            if self.mode == "building":
-                structure_rmsds.extend(results['structure_rmsds'])
+            structure_rmsds.extend(results['structure_rmsds'])
             labels.extend(results["ids"])
 
         angle_preds = np.concatenate(angle_preds, axis=0)
@@ -298,9 +299,8 @@ class Trainer:
         outputs["blens_rmse"] = blens_rmse
         outputs["labels"] = labels
 
-        if self.mode == 'building':
-            outputs['structure_rmsds'] = structure_rmsds
-            outputs['mean_structure_rmsd'] = np.mean(structure_rmsds)
+        outputs['structure_rmsds'] = structure_rmsds
+        outputs['mean_structure_rmsd'] = np.mean(structure_rmsds)
         return outputs
 
     def convert_prediction(self, preds):
@@ -332,7 +332,7 @@ class Trainer:
                         "lengths": torch.tensor(batch.lengths)}
         self.logger.log_graph(save_model, batch_inputs)
 
-    def predict_and_evaulate(self, batch, build_by_block=None):
+    def predict_and_evaulate(self, batch, use_builder=False, build_by_block=None):
         batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
                         "psi": batch.angs[:, :, 1].to(self.device[0]),
                         "omega": batch.angs[:, :, 2].to(self.device[0]),
@@ -344,13 +344,17 @@ class Trainer:
             build_range = [(start, min(start + build_by_block, l)) for start, l in zip(build_start, batch.lengths)]
             batch_inputs.update({"build_range": build_range})
 
-        preds = self.model(batch_inputs)
-        if self.mode == "scalar":
-            loss = self.loss_fn(preds, batch)
-        elif self.mode == "building":
+        if use_builder:
+            preds = self.builder(batch_inputs)
             pred_dmats = preds["dist_mats"]
             pred_coords = preds["coords"]
             preds = preds["predictions"]
+        else:
+            preds = self.model(batch_inputs)
+
+        if "scalar" in self.mode:
+            loss = self.loss_fn(preds, batch)
+        elif "building" in self.mode:
             loss = self.loss_fn(pred_dmats, batch, build_range)
 
         angle_preds, blens_preds = self.convert_prediction(preds)
@@ -368,7 +372,7 @@ class Trainer:
                    "blens_rmse": blens_rmse,
                    "ids": batch.pids}
 
-        if self.mode == "building":
+        if use_builder:
             structure_rmsds = structure_rmsd(pred_coords, batch.crds, batch.lengths, False, build_range)
             structure_rmsd_mean = np.mean(structure_rmsds)
             results.update({
@@ -399,19 +403,20 @@ class Trainer:
 
         """
         self.model.to(self.device[0])
+        self.builder.to(self.device[0])
         save_model = self.model
         if self.multi_gpu:
             self.model = nn.DataParallel(self.model, device_ids=self.device)
         self._optimizer_to_device()
 
         running_val_loss = []
-        last_test_epoch = 0
+        last_test_epoch = -100
         best_epoch_results = None
 
         has_logged_graph = False
 
         # evaluate test performance prior to training when building model
-        if test_dataloader is not None and self.mode == 'building':
+        if test_dataloader is not None and 'building' in self.mode:
             test_results = self.validate(test_dataloader)
             test_struc_rmsd = test_results['mean_structure_rmsd']
             iteration_rmsds = {'epoch': self.epoch}
@@ -456,7 +461,10 @@ class Trainer:
                 second_last_optimizer_state_dict = last_optimizer_state_dict
                 last_state_dict = deepcopy(self.model.state_dict())
                 last_optimizer_state_dict = deepcopy(self.optimizer.state_dict())
-                result = self.predict_and_evaulate(batch, self.build_block_size)
+                if "scalar" in self.mode:
+                    result = self.predict_and_evaulate(batch, use_builder=False)
+                elif "building" in self.mode:
+                    result = self.predict_and_evaulate(batch, use_builder=True, build_by_block=self.build_block_size)
                 loss = result['loss']
                 loss.backward()
                 if clip_grad>0:
@@ -474,7 +482,7 @@ class Trainer:
                 rmse_bb_angles.append(result['backbone_angle_rmse'])
                 rmse_sc_tor.append(result['sidechain_torsion_rmse'])
                 rmse_bonds.append(result['blens_rmse'])
-                if self.mode == "building":
+                if 'mean_structure_rmsd' in result:
                     structure_rmsds.append(result['mean_structure_rmsd'])
                 if current_loss > 100:
                     if self.debug:
@@ -517,8 +525,10 @@ class Trainer:
             rmse_bb_angles = np.mean(rmse_bb_angles[-100:])
             rmse_sc_tor = np.mean(rmse_sc_tor[-100:])
             rmse_bonds = np.mean(rmse_bonds[-100:])
-            if self.mode == 'building':
+            if len(structure_rmsds) > 0:
                 structure_rmsds = np.mean(structure_rmsds[-100:])
+            else:
+                structure_rmsds = 0
 
             # save debug info when necessary
             if self.debug:
@@ -530,12 +540,26 @@ class Trainer:
 
             # validation
             val_error = float("inf")
+
+            val_bb_angle_rmse = np.nan
+            val_sc_tor_rmse = np.nan
+            val_blens_rmse = np.nan
+            val_struc_rmsd = np.nan
+            val_struc_all_rmsds = []
             if val_dataloader is not None and \
                 self.epoch % self.check_val == 0:
                 if self.verbose:
                     print("Start validation")
                 val_results = self.validate(val_dataloader)
                 val_error = val_results["loss"]
+                val_bb_angle_rmse = val_results['bb_angle_rmse']
+                val_sc_tor_rmse = val_results['sc_tor_rmse']
+                val_blens_rmse = val_results['blens_rmse']
+                val_struc_rmsd = val_results['mean_structure_rmsd']
+                val_struc_all_rmsds = val_results['structure_rmsds']
+
+                # log RMSD distributions
+                self.logger.log_hist(val_struc_all_rmsds, "validation/structure_rmsds", self.epoch)
 
 
             # checkpoint every epoch when preempt is allowed
@@ -616,7 +640,7 @@ class Trainer:
                     # np.save(os.path.join(self.val_out_path, 'test_Ei_epoch%i'%self.epoch), outputs['Ei'])
 
                     # save rmsd tracking
-                    if self.mode == 'building':
+                    if  'building' in self.mode:
                         test_struc_rmsd = test_results['mean_structure_rmsd']
                         iteration_rmsds = {'epoch': self.epoch}
                         iteration_rmsds.update({pdb_name: rmsd for pdb_name, rmsd in zip(test_results["labels"], test_results['structure_rmsds'])})
@@ -640,6 +664,7 @@ class Trainer:
                         self.optimizer.param_groups):
                         # self.scheduler.optimizer.param_groups):
                     old_lr = float(param_group["lr"])
+            
             epoch_results = {
                 "epoch": self.epoch,
                 "lr": old_lr,
@@ -648,20 +673,20 @@ class Trainer:
                 "val/loss": val_error,
                 "test/loss": test_error,
                 "tr/rmse_bb_angle": rmse_bb_angles,
-                'val/rmse_bb_angle': val_results['bb_angle_rmse'],
+                'val/rmse_bb_angle': val_bb_angle_rmse,
                 'test/rmse_bb_angle': test_bb_angle_rmse,
                 "tr/rmse_sc_tor": rmse_sc_tor,
-                'val/rmse_sc_tor': val_results['sc_tor_rmse'],
+                'val/rmse_sc_tor': val_sc_tor_rmse,
                 'test/rmse_sc_tor': test_sc_tor_rmse,
                 'tr/rmse_blens': rmse_bonds,
-                'val/rmse_blens': val_results['blens_rmse'],
+                'val/rmse_blens': val_blens_rmse,
                 'test/rmse_blens': test_blens_rmse
             }
 
-            if self.mode == 'building':
+            if 'building' in self.mode:
                 epoch_results.update({
                     'tr/structure_rmsd': structure_rmsds,
-                    'val/structure_rmsd': val_results['mean_structure_rmsd'],
+                    'val/structure_rmsd': val_struc_rmsd,
                     'test/structure_rmsd': test_struc_rmsd
                 })
 

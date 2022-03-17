@@ -5,7 +5,7 @@ from torch import nn
 from torch.optim import Adam, SGD
 import numpy as np
 
-from modelling.models import get_model
+from modelling.models.builder import BackboneBuilder
 from modelling.utils import OnehotDigitizer
 from sidechainnet import load
 from modelling.train import Trainer
@@ -29,14 +29,17 @@ data = load(settings['data']['casp_version'],
             thinning=settings['data']['thinning'],
             with_pytorch='dataloaders',
             scn_dir=settings['data']['scn_data_dir'],
-            batch_size=settings['training']['batch_size'])
+            batch_size=settings['training']['batch_size'],
+            filter_by_resolution=settings['data'].get("filter_resolution", False))
 
 train = data['train']
 val = data[f'valid-{settings["data"]["validation_similarity_level"]}']
 test = data['test']
 
 # model
-model = get_model(settings)
+# model = get_model(settings)
+builder = BackboneBuilder(settings)
+model = builder.predictor
 
 
 # optimizer
@@ -75,6 +78,7 @@ loss_fn = prepare_losses(settings,
 # training
 trainer = Trainer(
     model=model,
+    builder=builder,
     loss_fn=loss_fn,
     optimizer=optimizer,
     device=device,
@@ -97,7 +101,7 @@ trainer = Trainer(
     verbose=settings['checkpoint']['verbose'],
     preempt=settings['training']['preempt'],
     debug=debug_mode,
-    mode="scalar"
+    mode="scalar+building"
 )
 
 trainer.print_layers()
