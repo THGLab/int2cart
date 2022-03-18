@@ -127,6 +127,7 @@ if best_results is not None:
     hparam_metrics["metrics/rmse_bb_angle"] = best_results["val/rmse_bb_angle"]
     hparam_metrics["metrics/rmse_sc_tor"] = best_results["val/rmse_sc_tor"]
     hparam_metrics["metrics/rmse_blens"] = best_results["val/rmse_blens"]
+    hparam_metrics["metrics/structure_rmsd"] = best_results["val/structure_rmsd"]
 trainer.logger.log_hparams(run_hparams, hparam_metrics)
 
 if succeeded:
