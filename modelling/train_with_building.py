@@ -2,7 +2,7 @@ import yaml
 import sys
 import torch
 from torch import nn
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 import numpy as np
 # torch.autograd.set_detect_anomaly(True)
 
@@ -30,18 +30,25 @@ if debug_mode:
     data = load('debug', with_pytorch='dataloaders',
             scn_dir=settings['data']['scn_data_dir'],
             batch_size=settings['training']['batch_size'],
-            complete_structures_only=True)
+            complete_structures_only=True,
+            dynamic_batching=False,
+            use_default_train_sampler=True,
+            id_filter=("1A8D_1_A", "1H8L_1_A", "1NQA_1_O", "1VAE_1_A", "1X5X_1_A"))
 else:
     data = load(settings['data']['casp_version'],
                 thinning=settings['data']['thinning'],
                 with_pytorch='dataloaders',
                 scn_dir=settings['data']['scn_data_dir'],
                 batch_size=settings['training']['batch_size'],
-                complete_structures_only=True)
+                complete_structures_only=True,
+                filter_by_resolution=settings['data'].get("filter_resolution", False))
 
 train = data['train']
 val = data[f'valid-{settings["data"]["validation_similarity_level"]}']
 test = data['test']
+
+val = data['train']
+test = data['train']
 
 # create model and load weights
 model = BackboneBuilder(settings)
@@ -51,9 +58,20 @@ if 'pretrained_state' in settings['training']:
 
 
 # optimizer
-optimizer = Adam(model.parameters(),
-                 lr=settings['training']['lr'],
-                 weight_decay=settings['training']['weight_decay'])
+optimizer = settings['training'].get('optimizer', "Adam")
+if optimizer.lower() == 'adam':
+    optimizer = Adam(model.parameters(),
+                    lr=settings['training']['lr'],
+                    weight_decay=settings['training']['weight_decay'])
+elif optimizer.lower() == 'sgd':
+    momentum = settings['training'].get('momentum', 0)
+    nestrov = settings['training'].get('nestrov', False)
+    optimizer = SGD(model.parameters(),
+                    lr=settings['training']['lr'],
+                    weight_decay=settings['training']['weight_decay'],
+                    momentum=momentum,
+                    nesterov=nestrov)
+
 
 
 
