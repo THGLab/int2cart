@@ -87,6 +87,7 @@ c_n_blens_digitizer = OnehotDigitizer(settings['bins']['c-n_bin'], binary=False)
 # training
 trainer = Trainer(
     model=model,
+    builder=model,
     loss_fn=drmsd_loss,
     optimizer=optimizer,
     device=device,
