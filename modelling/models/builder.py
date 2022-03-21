@@ -5,6 +5,7 @@ from modelling.models import get_model
 from torch import nn
 import torch
 from modelling.utils.geometry import calc_dist_mat
+import numpy as np
 
 AA_MAP = {
     'A': 0,
@@ -31,10 +32,11 @@ AA_MAP = {
 AA_MAP_INV = {v:k for k,v in AA_MAP.items()}
 
 class BackboneBuilder(nn.Module):
-    def __init__(self, settings):
+    def __init__(self, settings, prediction_conversion_func=None):
         super().__init__()
         
         self.predictor = get_model(settings)
+        self.convert_prediction = prediction_conversion_func
 
     def load_predictor_weights(self, model_state):
         self.predictor.load_state_dict(model_state)
@@ -42,14 +44,24 @@ class BackboneBuilder(nn.Module):
     def replace_predictor(self, predictor):
         self.predictor = predictor
 
+    def set_prediction_conversion_func(self, prediction_conversion_func):
+        self.convert_prediction = prediction_conversion_func
+
     def forward(self, inputs):
         predictions = self.predictor(inputs)
+        if self.convert_prediction is not None:
+            angle_preds, all_blens = self.convert_prediction(predictions)
+            angle_preds = list(torch.moveaxis(angle_preds, -1, 0)[:, :, :, None] * np.pi / 180)
+        else:
+            angle_preds = predictions[:9]
+            blens_preds = predictions[-3:]
+            all_blens = torch.cat(blens_preds, dim=-1)
         all_angles = torch.cat([inputs["phi"].unsqueeze(-1), 
         inputs["psi"].unsqueeze(-1), 
-        inputs["omega"].unsqueeze(-1)] + predictions[:3], dim=-1)
+        inputs["omega"].unsqueeze(-1)] + angle_preds[:3], dim=-1)
         zeros = torch.zeros_like(all_angles)
         all_angles = torch.cat([all_angles, zeros], dim=-1)
-        all_blens = torch.cat(predictions[-3:], dim=-1)
+        # all_blens = torch.cat(blens_preds, dim=-1)
 
         batch_size = len(inputs["lengths"])
         if "build_range" in inputs:

@@ -47,8 +47,8 @@ train = data['train']
 val = data[f'valid-{settings["data"]["validation_similarity_level"]}']
 test = data['test']
 
-val = data['train']
-test = data['train']
+# val = data['train']
+# test = data['train']
 
 # create model and load weights
 model = BackboneBuilder(settings)

@@ -7,6 +7,7 @@ import time
 import shutil
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from functools import partial
 
 from torch.optim.lr_scheduler import ReduceLROnPlateau, LambdaLR
 from torch import nn
@@ -48,6 +49,7 @@ class Trainer:
                  build_block_size=None):
         self.model = model
         self.builder = builder
+        self.builder.set_prediction_conversion_func(partial(self.convert_prediction, data_format="tensor"))
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self.bond_length_bin = bond_length_bin
@@ -303,25 +305,42 @@ class Trainer:
         outputs['mean_structure_rmsd'] = np.mean(structure_rmsds)
         return outputs
 
-    def convert_prediction(self, preds):
+    def convert_prediction(self, preds, data_format="numpy"):
         if self.backbone_angle_bin:
             angle_preds = max_sampling(torch.stack(preds[:9], axis=2),
-                                    self.bin_references["angles"])
+                                    self.bin_references["angles"],
+                                    data_format)
         else:
-            backbone_angle_preds = tensor_to_numpy(torch.cat(preds[:3], axis=-1)) * 180/np.pi
-            sidechain_torsion_preds = max_sampling(torch.stack(preds[3:9], axis=2),
-                                    self.bin_references["angles"])
-            angle_preds = np.concatenate([backbone_angle_preds, sidechain_torsion_preds], axis=-1)
+            if data_format == "numpy":
+                backbone_angle_preds = tensor_to_numpy(torch.cat(preds[:3], axis=-1)) * 180/np.pi
+                sidechain_torsion_preds = max_sampling(torch.stack(preds[3:9], axis=2),
+                                        self.bin_references["angles"],
+                                        "numpy")
+                angle_preds = np.concatenate([backbone_angle_preds, sidechain_torsion_preds], axis=-1)
+            elif data_format == "tensor":
+                backbone_angle_preds = torch.cat(preds[:3], axis=-1) * 180/np.pi
+                sidechain_torsion_preds = max_sampling(torch.stack(preds[3:9], axis=2),
+                                        self.bin_references["angles"],
+                                        "tensor")
+                angle_preds = torch.cat([backbone_angle_preds, sidechain_torsion_preds], axis=-1)
 
         if self.bond_length_bin:
-            n_ca_blen_preds = max_sampling(preds[9], self.bin_references["n_ca_bond_length"])
-            ca_c_blen_preds = max_sampling(preds[10], self.bin_references["ca_c_bond_length"])
-            c_n_blen_preds = max_sampling(preds[11], self.bin_references["c_n_bond_length"])
-            blens_preds = np.stack([n_ca_blen_preds,
-                                    ca_c_blen_preds,
-                                    c_n_blen_preds], axis=-1)
+            n_ca_blen_preds = max_sampling(preds[9], self.bin_references["n_ca_bond_length"], data_format)
+            ca_c_blen_preds = max_sampling(preds[10], self.bin_references["ca_c_bond_length"], data_format)
+            c_n_blen_preds = max_sampling(preds[11], self.bin_references["c_n_bond_length"], data_format)
+            if data_format == "numpy":
+                blens_preds = np.stack([n_ca_blen_preds,
+                                        ca_c_blen_preds,
+                                        c_n_blen_preds], axis=-1)
+            elif data_format == "tensor":
+                blens_preds = torch.stack([n_ca_blen_preds,
+                                        ca_c_blen_preds,
+                                        c_n_blen_preds], axis=-1)
         else:
-            blens_preds = tensor_to_numpy(torch.cat(preds[9:], axis=-1))
+            if data_format == "numpy":
+                blens_preds = tensor_to_numpy(torch.cat(preds[9:], axis=-1))
+            elif data_format == "tensor":
+                blens_preds = torch.cat(preds[9:], axis=-1)
         return angle_preds, blens_preds
 
     def log_graph(self, save_model, batch):
