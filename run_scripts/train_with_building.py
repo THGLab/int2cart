@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from torch.optim import Adam, SGD
 import numpy as np
+# torch.autograd.set_detect_anomaly(True)
 
 from modelling.models.builder import BackboneBuilder
 from modelling.utils import OnehotDigitizer
@@ -11,10 +12,10 @@ from sidechainnet import load
 from modelling.train import Trainer
 from modelling.utils.default_scalers import *
 from modelling.utils.get_gpu import handle_gpu
-from modelling.losses.scalar_losses import prepare_losses
+from modelling.losses.drmsd import drmsd_loss
 
 #
-settings_path = 'configs/debug.yml'
+settings_path = '../configs/debug_building.yml'
 debug_mode = True
 if len(sys.argv) > 1:
     settings_path = sys.argv[-1]
@@ -25,21 +26,35 @@ device = [torch.device(dev) for dev in handle_gpu(settings['general']['device'])
 
 
 # data
-data = load(settings['data']['casp_version'],
-            thinning=settings['data']['thinning'],
-            with_pytorch='dataloaders',
+if debug_mode:
+    data = load('debug', with_pytorch='dataloaders',
             scn_dir=settings['data']['scn_data_dir'],
             batch_size=settings['training']['batch_size'],
-            filter_by_resolution=settings['data'].get("filter_resolution", False))
+            complete_structures_only=True,
+            dynamic_batching=False,
+            use_default_train_sampler=True,
+            id_filter=("1A8D_1_A", "1H8L_1_A", "1NQA_1_O", "1VAE_1_A", "1X5X_1_A"))
+else:
+    data = load(settings['data']['casp_version'],
+                thinning=settings['data']['thinning'],
+                with_pytorch='dataloaders',
+                scn_dir=settings['data']['scn_data_dir'],
+                batch_size=settings['training']['batch_size'],
+                complete_structures_only=True,
+                filter_by_resolution=settings['data'].get("filter_resolution", False))
 
 train = data['train']
 val = data[f'valid-{settings["data"]["validation_similarity_level"]}']
 test = data['test']
 
-# model
-# model = get_model(settings)
-builder = BackboneBuilder(settings)
-model = builder.predictor
+# val = data['train']
+# test = data['train']
+
+# create model and load weights
+model = BackboneBuilder(settings)
+if 'pretrained_state' in settings['training']:
+    model_state = torch.load(settings['training']['pretrained_state'])["model_state_dict"]
+    model.load_predictor_weights(model_state)
 
 
 # optimizer
@@ -67,19 +82,13 @@ n_ca_blens_digitizer = OnehotDigitizer(settings['bins']['n-ca_bin'], binary=Fals
 ca_c_blens_digitizer = OnehotDigitizer(settings['bins']['ca-c_bin'], binary=False)
 c_n_blens_digitizer = OnehotDigitizer(settings['bins']['c-n_bin'], binary=False)
 
-loss_fn = prepare_losses(settings, 
-                         angle_digitizer, 
-                         n_ca_blens_digitizer,
-                         ca_c_blens_digitizer,
-                         c_n_blens_digitizer,
-                         rescale_by_length=settings['training'].get('rescale_loss_by_lengths', False))
 
 
 # training
 trainer = Trainer(
     model=model,
-    builder=builder,
-    loss_fn=loss_fn,
+    builder=model,
+    loss_fn=drmsd_loss,
     optimizer=optimizer,
     device=device,
     yml_path=settings_path,
@@ -101,7 +110,8 @@ trainer = Trainer(
     verbose=settings['checkpoint']['verbose'],
     preempt=settings['training']['preempt'],
     debug=debug_mode,
-    mode="scalar+building"
+    mode="building",
+    build_block_size=settings['training'].get('build_block_size', None)
 )
 
 trainer.print_layers()

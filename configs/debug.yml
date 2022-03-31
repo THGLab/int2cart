@@ -1,5 +1,5 @@
 general:
-  device: cuda:0
+  device: cuda
   output: [../local/debug , 1] # root, dir, iter
 
 data:
@@ -7,6 +7,7 @@ data:
   thinning: 30
   scn_data_dir: /home/jerry/data2/protein_building/sidechainnet_data
   validation_similarity_level: 50
+  fragment_length: 5
 
 bins:
   bond_length_bin: false
@@ -22,24 +23,29 @@ model:
   gaussian_normalize: True
   gaussian_factor: 0.5
 
-  recurrent: lstm
+  recurrent: gru
   rec_neurons_num: 200
   rec_stack_size: 3
   rec_dropout: 0.1
 
   n_filter_layers: 2
   filter_size: 64
+  use_batchnorm: true
 
 
 
 training:
   preempt: false
-  epochs: 6
-  batch_size: 64
+  epochs: 100
+  batch_size: 512
   lr: 0.001
   lr_scheduler: null
   weight_decay: 1.0e-4
+  optimizer: sgd
+  momentum: 0.8
+  nestrov: true
   loss_term_weigths: 1
+  rescale_loss_by_lengths: false
 
 checkpoint:
   log: 1

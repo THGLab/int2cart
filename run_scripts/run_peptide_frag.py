@@ -4,18 +4,18 @@ import torch
 from torch import nn
 from torch.optim import Adam, SGD
 import numpy as np
-# torch.autograd.set_detect_anomaly(True)
 
 from modelling.models.builder import BackboneBuilder
 from modelling.utils import OnehotDigitizer
 from sidechainnet import load
+from modelling.utils.peptide_fragment_loader import PeptideFragmentLoader
 from modelling.train import Trainer
 from modelling.utils.default_scalers import *
 from modelling.utils.get_gpu import handle_gpu
-from modelling.losses.drmsd import drmsd_loss
+from modelling.losses.scalar_losses import prepare_losses
 
 #
-settings_path = 'configs/debug_building.yml'
+settings_path = '../configs/debug.yml'
 debug_mode = True
 if len(sys.argv) > 1:
     settings_path = sys.argv[-1]
@@ -29,32 +29,32 @@ device = [torch.device(dev) for dev in handle_gpu(settings['general']['device'])
 if debug_mode:
     data = load('debug', with_pytorch='dataloaders',
             scn_dir=settings['data']['scn_data_dir'],
-            batch_size=settings['training']['batch_size'],
+            batch_size=10,
             complete_structures_only=True,
             dynamic_batching=False,
-            use_default_train_sampler=True,
-            id_filter=("1A8D_1_A", "1H8L_1_A", "1NQA_1_O", "1VAE_1_A", "1X5X_1_A"))
+            use_default_train_sampler=True)
 else:
     data = load(settings['data']['casp_version'],
                 thinning=settings['data']['thinning'],
                 with_pytorch='dataloaders',
                 scn_dir=settings['data']['scn_data_dir'],
-                batch_size=settings['training']['batch_size'],
-                complete_structures_only=True,
+                batch_size=1,
                 filter_by_resolution=settings['data'].get("filter_resolution", False))
 
-train = data['train']
-val = data[f'valid-{settings["data"]["validation_similarity_level"]}']
-test = data['test']
+train = PeptideFragmentLoader(data['train'], 
+        settings['data']['fragment_length'], 
+        settings['training']['batch_size'])
+val = PeptideFragmentLoader(data[f'valid-{settings["data"]["validation_similarity_level"]}'], 
+        settings['data']['fragment_length'], 
+        settings['training']['batch_size'])
+test = PeptideFragmentLoader(data['test'], 
+        settings['data']['fragment_length'], 
+        settings['training']['batch_size'])
 
-# val = data['train']
-# test = data['train']
-
-# create model and load weights
-model = BackboneBuilder(settings)
-if 'pretrained_state' in settings['training']:
-    model_state = torch.load(settings['training']['pretrained_state'])["model_state_dict"]
-    model.load_predictor_weights(model_state)
+# model
+# model = get_model(settings)
+builder = BackboneBuilder(settings)
+model = builder.predictor
 
 
 # optimizer
@@ -82,13 +82,20 @@ n_ca_blens_digitizer = OnehotDigitizer(settings['bins']['n-ca_bin'], binary=Fals
 ca_c_blens_digitizer = OnehotDigitizer(settings['bins']['ca-c_bin'], binary=False)
 c_n_blens_digitizer = OnehotDigitizer(settings['bins']['c-n_bin'], binary=False)
 
+loss_fn = prepare_losses(settings, 
+                         angle_digitizer, 
+                         n_ca_blens_digitizer,
+                         ca_c_blens_digitizer,
+                         c_n_blens_digitizer,
+                         rescale_by_length=settings['training'].get('rescale_loss_by_lengths', False),
+                         central_residue=(settings['data']['fragment_length'] // 2))
 
 
 # training
 trainer = Trainer(
     model=model,
-    builder=model,
-    loss_fn=drmsd_loss,
+    builder=builder,
+    loss_fn=loss_fn,
     optimizer=optimizer,
     device=device,
     yml_path=settings_path,
@@ -110,8 +117,8 @@ trainer = Trainer(
     verbose=settings['checkpoint']['verbose'],
     preempt=settings['training']['preempt'],
     debug=debug_mode,
-    mode="building",
-    build_block_size=settings['training'].get('build_block_size', None)
+    mode="scalar",
+    central_residue=(settings['data']['fragment_length'] // 2)
 )
 
 trainer.print_layers()
@@ -137,7 +144,8 @@ if best_results is not None:
     hparam_metrics["metrics/rmse_bb_angle"] = best_results["val/rmse_bb_angle"]
     hparam_metrics["metrics/rmse_sc_tor"] = best_results["val/rmse_sc_tor"]
     hparam_metrics["metrics/rmse_blens"] = best_results["val/rmse_blens"]
-    hparam_metrics["metrics/structure_rmsd"] = best_results["val/structure_rmsd"]
+    if "val/structure_rmsd" in best_results:
+        hparam_metrics["metrics/structure_rmsd"] = best_results["val/structure_rmsd"]
 trainer.logger.log_hparams(run_hparams, hparam_metrics)
 
 if succeeded:

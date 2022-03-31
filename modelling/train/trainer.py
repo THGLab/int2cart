@@ -1,5 +1,6 @@
 from copy import deepcopy
 import os
+from ssl import cert_time_to_seconds
 import numpy as np
 import pandas as pd
 import torch
@@ -46,7 +47,8 @@ class Trainer:
                  save_test_batch=False,
                  preempt=False,
                  debug=False,
-                 build_block_size=None):
+                 build_block_size=None,
+                 central_residue=None):
         self.model = model
         self.builder = builder
         self.builder.set_prediction_conversion_func(partial(self.convert_prediction, data_format="tensor"))
@@ -59,6 +61,7 @@ class Trainer:
         self.preempt = preempt
         self.debug = debug
         self.build_block_size = build_block_size
+        self.central_residue = central_residue
 
         if type(device) is list and len(device) > 1:
             self.multi_gpu = True
@@ -257,7 +260,7 @@ class Trainer:
         return loss
 
 
-    def validate(self, data_loader):
+    def validate(self, data_loader, use_builder=True, central_residue=None):
         self.model.eval()
         self.model.requires_dr = False
 
@@ -271,13 +274,20 @@ class Trainer:
 
         for batch in tqdm(data_loader):
             with torch.no_grad():
-                results = self.predict_and_evaulate(batch, use_builder=True)
+                results = self.predict_and_evaulate(batch, use_builder=use_builder, central_residue=central_residue)
             losses.append(tensor_to_numpy(results['loss']))
-            angle_preds.extend(results['angle_preds'])
-            blens_preds.extend(results['blens_preds'])
-            angle_targets.extend(results['angle_targets'])
-            blens_targets.extend(results['blens_targets'])
-            structure_rmsds.extend(results['structure_rmsds'])
+            if central_residue is None:
+                angle_preds.extend(results['angle_preds'])
+                blens_preds.extend(results['blens_preds'])
+                angle_targets.extend(results['angle_targets'])
+                blens_targets.extend(results['blens_targets'])
+            else:
+                angle_preds.append(results['angle_preds'][:, central_residue])
+                blens_preds.append(results['blens_preds'][:, central_residue])
+                angle_targets.append(results['angle_targets'][:, central_residue])
+                blens_targets.append(results['blens_targets'][:, central_residue])
+            if 'structure_rmsds' in results:
+                structure_rmsds.extend(results['structure_rmsds'])
             labels.extend(results["ids"])
 
         angle_preds = np.concatenate(angle_preds, axis=0)
@@ -351,7 +361,7 @@ class Trainer:
                         "lengths": torch.tensor(batch.lengths)}
         self.logger.log_graph(save_model, batch_inputs)
 
-    def predict_and_evaulate(self, batch, use_builder=False, build_by_block=None):
+    def predict_and_evaulate(self, batch, use_builder=False, build_by_block=None, central_residue=None):
         batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
                         "psi": batch.angs[:, :, 1].to(self.device[0]),
                         "omega": batch.angs[:, :, 2].to(self.device[0]),
@@ -377,9 +387,14 @@ class Trainer:
             loss = self.loss_fn(pred_dmats, batch, build_range)
 
         angle_preds, blens_preds = self.convert_prediction(preds)
-        backbone_angle_rmse = rmse(angle_preds[:, :, :3], batch.angs[:, :, 3:6] * 180 / np.pi, periodic=True)
-        sidechain_torsion_rmse = rmse(angle_preds[:, :, 3:], batch.angs[:, :, 6:] * 180 / np.pi, periodic=True)
-        blens_rmse = rmse(blens_preds, batch.blens)
+        if central_residue is not None:
+            backbone_angle_rmse = rmse(angle_preds[:, central_residue, :3], batch.angs[:, central_residue, 3:6] * 180 / np.pi, periodic=True)
+            sidechain_torsion_rmse = rmse(angle_preds[:, central_residue, 3:], batch.angs[:, central_residue, 6:] * 180 / np.pi, periodic=True)
+            blens_rmse = rmse(blens_preds[:, central_residue], batch.blens[:, central_residue])
+        else:
+            backbone_angle_rmse = rmse(angle_preds[:, :, :3], batch.angs[:, :, 3:6] * 180 / np.pi, periodic=True)
+            sidechain_torsion_rmse = rmse(angle_preds[:, :, 3:], batch.angs[:, :, 6:] * 180 / np.pi, periodic=True)
+            blens_rmse = rmse(blens_preds, batch.blens)
 
         results = {"loss": loss,
                    "angle_preds": angle_preds,
@@ -436,7 +451,7 @@ class Trainer:
 
         # evaluate test performance prior to training when building model
         if test_dataloader is not None and 'building' in self.mode:
-            test_results = self.validate(test_dataloader)
+            test_results = self.validate(test_dataloader, use_builder="building" in self.mode, central_residue=self.central_residue)
             test_struc_rmsd = test_results['mean_structure_rmsd']
             iteration_rmsds = {'epoch': self.epoch}
             iteration_rmsds.update({pdb_name: rmsd for pdb_name, rmsd in zip(test_results["labels"], test_results['structure_rmsds'])})
@@ -481,9 +496,9 @@ class Trainer:
                 last_state_dict = deepcopy(self.model.state_dict())
                 last_optimizer_state_dict = deepcopy(self.optimizer.state_dict())
                 if "scalar" in self.mode:
-                    result = self.predict_and_evaulate(batch, use_builder=False)
+                    result = self.predict_and_evaulate(batch, use_builder=False, central_residue=self.central_residue)
                 elif "building" in self.mode:
-                    result = self.predict_and_evaulate(batch, use_builder=True, build_by_block=self.build_block_size)
+                    result = self.predict_and_evaulate(batch, use_builder=True, build_by_block=self.build_block_size, central_residue=self.central_residue)
                 loss = result['loss']
                 loss.backward()
                 if clip_grad>0:
@@ -569,7 +584,7 @@ class Trainer:
                 self.epoch % self.check_val == 0:
                 if self.verbose:
                     print("Start validation")
-                val_results = self.validate(val_dataloader)
+                val_results = self.validate(val_dataloader, use_builder="building" in self.mode, central_residue=self.central_residue)
                 val_error = val_results["loss"]
                 val_bb_angle_rmse = val_results['bb_angle_rmse']
                 val_sc_tor_rmse = val_results['sc_tor_rmse']
@@ -578,7 +593,8 @@ class Trainer:
                 val_struc_all_rmsds = val_results['structure_rmsds']
 
                 # log RMSD distributions
-                self.logger.log_hist(val_struc_all_rmsds, "validation/structure_rmsds", self.epoch)
+                if len(val_struc_all_rmsds) > 0:
+                    self.logger.log_hist(val_struc_all_rmsds, "validation/structure_rmsds", self.epoch)
 
 
             # checkpoint every epoch when preempt is allowed
@@ -629,7 +645,7 @@ class Trainer:
                 if test_dataloader is not None and self.epoch - last_test_epoch >= self.check_test:
                     if self.verbose:
                         print("Start testing")
-                    test_results = self.validate(test_dataloader)
+                    test_results = self.validate(test_dataloader, use_builder="building" in self.mode, central_residue=self.central_residue)
                     test_error = test_results['loss']
                     test_bb_angle_rmse = test_results['bb_angle_rmse']
                     test_sc_tor_rmse = test_results['sc_tor_rmse']
