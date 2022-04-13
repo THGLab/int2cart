@@ -12,6 +12,9 @@ from modelling.train import Trainer
 from modelling.utils.default_scalers import *
 from modelling.utils.get_gpu import handle_gpu
 from modelling.losses.scalar_losses import prepare_losses
+from modelling.utils.infinite_data_loader import InfiniteDataLoader
+
+torch.autograd.set_detect_anomaly(False)
 
 #
 settings_path = '../configs/debug.yml'
@@ -34,6 +37,7 @@ data = load(settings['data']['casp_version'],
 
 train = data['train']
 val = data[f'valid-{settings["data"]["validation_similarity_level"]}']
+infinite_val = InfiniteDataLoader(val)
 test = data['test']
 
 # model
@@ -111,7 +115,8 @@ best_results, succeeded = trainer.train(
     epochs=settings['training']['epochs'],
     train_dataloader=train,
     val_dataloader=val,
-    test_dataloader=test
+    test_dataloader=test,
+    infinite_val_data_loader=infinite_val
 )
 
 # Log hyperparameters and the best performance of this run
