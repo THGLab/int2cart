@@ -14,6 +14,8 @@ from modelling.utils.get_gpu import handle_gpu
 from modelling.losses.scalar_losses import prepare_losses
 from modelling.utils.infinite_data_loader import InfiniteDataLoader
 
+from modelling.utils.load_data import load_data
+
 torch.autograd.set_detect_anomaly(False)
 
 #
@@ -28,17 +30,7 @@ device = [torch.device(dev) for dev in handle_gpu(settings['general']['device'])
 
 
 # data
-data = load(settings['data']['casp_version'],
-            thinning=settings['data']['thinning'],
-            with_pytorch='dataloaders',
-            scn_dir=settings['data']['scn_data_dir'],
-            batch_size=settings['training']['batch_size'],
-            filter_by_resolution=settings['data'].get("filter_resolution", False))
-
-train = data['train']
-val = data[f'valid-{settings["data"]["validation_similarity_level"]}']
-infinite_val = InfiniteDataLoader(val)
-test = data['test']
+train, val, test, infinite_val = load_data(settings)
 
 # model
 # model = get_model(settings)

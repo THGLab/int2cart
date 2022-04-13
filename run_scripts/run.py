@@ -11,6 +11,7 @@ from sidechainnet import load
 from modelling.train import Trainer
 from modelling.utils.default_scalers import *
 from modelling.utils.get_gpu import handle_gpu
+from modelling.utils import load_data
 from modelling.losses.scalar_losses import prepare_losses
 
 #
@@ -25,16 +26,7 @@ device = [torch.device(dev) for dev in handle_gpu(settings['general']['device'])
 
 
 # data
-data = load(settings['data']['casp_version'],
-            thinning=settings['data']['thinning'],
-            with_pytorch='dataloaders',
-            scn_dir=settings['data']['scn_data_dir'],
-            batch_size=settings['training']['batch_size'],
-            filter_by_resolution=settings['data'].get("filter_resolution", False))
-
-train = data['train']
-val = data[f'valid-{settings["data"]["validation_similarity_level"]}']
-test = data['test']
+train, val, test, _ = load_data(settings)
 
 # model
 # model = get_model(settings)
