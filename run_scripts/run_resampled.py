@@ -37,6 +37,10 @@ train, val, test, infinite_val = load_data(settings)
 builder = BackboneBuilder(settings)
 model = builder.predictor
 
+if 'pretrained_state' in settings['training']:
+    model_state = torch.load(settings['training']['pretrained_state'])["model_state_dict"]
+    model.load_predictor_weights(model_state)
+
 
 # optimizer
 optimizer = settings['training'].get('optimizer', "Adam")
