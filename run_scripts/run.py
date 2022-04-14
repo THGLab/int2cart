@@ -7,7 +7,6 @@ import numpy as np
 
 from modelling.models.builder import BackboneBuilder
 from modelling.utils import OnehotDigitizer
-from sidechainnet import load
 from modelling.train import Trainer
 from modelling.utils.default_scalers import *
 from modelling.utils.get_gpu import handle_gpu
@@ -26,12 +25,16 @@ device = [torch.device(dev) for dev in handle_gpu(settings['general']['device'])
 
 
 # data
-train, val, test, _ = load_data(settings)
+train, val, test, _ = load_data(settings, use_debug_dataset=True)
 
 # model
 # model = get_model(settings)
 builder = BackboneBuilder(settings)
 model = builder.predictor
+
+if 'pretrained_state' in settings['training']:
+    model_state = torch.load(settings['training']['pretrained_state'])["model_state_dict"]
+    model.load_predictor_weights(model_state)
 
 
 # optimizer
