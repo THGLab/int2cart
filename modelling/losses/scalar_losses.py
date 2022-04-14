@@ -31,7 +31,7 @@ def prepare_losses(settings, angle_digitizer, n_ca_blens_digitizer, ca_c_blens_d
 
 
 
-    def compute_loss(preds, batch):
+    def compute_loss(preds, batch, sample_weights=None):
         '''
         preds: list of predictions [3x backbone bond angles, 6x sidechain torsion angles, 3x bond lengths]
         batch: the batch dataset that contains targets and masks
@@ -87,6 +87,8 @@ def prepare_losses(settings, angle_digitizer, n_ca_blens_digitizer, ca_c_blens_d
         if central_residue is not None:
             weighted_loss = weighted_loss[:, central_residue]
             mask = mask[:, central_residue]
+        if sample_weights is not None:
+            mask = mask * sample_weights
         loss = torch.sum((weighted_loss * mask) / torch.sum(mask + 1e-8))
 
         # print('batch total loss:', loss.detach().cpu().numpy())

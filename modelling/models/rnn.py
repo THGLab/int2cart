@@ -756,16 +756,18 @@ class RecurrentModel(nn.Module):
         # self.linear = nn.Linear(rec_neurons_num, out_dimension)
         # # self.linear = Dense(rec_neurons_num, out_dimension,bias=False,activation=None)
 
-    def init_hidden(self, batch_size=1):
-        weight = next(self.parameters())
-        hidden =  weight.new_zeros(self.rec_stack_size * 2, batch_size,
-                                self.rec_neurons_num)
+    def init_hidden(self, batch_size=1, reference_tensor=None):
+        # weight = next(self.parameters())
+        # hidden =  weight.new_zeros(self.rec_stack_size * 2, batch_size,
+        #                         self.rec_neurons_num)
+        hidden = reference_tensor.new_zeros((self.rec_stack_size * 2, batch_size,
+                                self.rec_neurons_num))
         if type(self.recurrent) is nn.LSTM:
-            cell = self.init_cell(batch_size)
+            cell = self.init_cell(batch_size, reference_tensor)
             hidden = (hidden, cell)
         return hidden
 
-    def init_cell(self, batch_size=1):
+    def init_cell(self, batch_size=1, reference_tensor=None):
         """
         only used when rnn type is lstm.
 
@@ -777,8 +779,8 @@ class RecurrentModel(nn.Module):
         -------
 
         """
-        weight = next(self.parameters())
-        return weight.new_zeros(self.rec_stack_size * 2, batch_size,
+        # weight = next(self.parameters())
+        return reference_tensor.new_zeros(self.rec_stack_size * 2, batch_size,
                                 self.rec_neurons_num)
 
     def forward(self, inputs):
@@ -813,7 +815,7 @@ class RecurrentModel(nn.Module):
         x = self.mixing_filter(x)
 
         # initialize hidden state
-        hidden = self.init_hidden(batch_size)
+        hidden = self.init_hidden(batch_size, reference_tensor=x)
 
         # do axis manipulation and handle different length sequences
         x = torch.moveaxis(x, 0, 1)

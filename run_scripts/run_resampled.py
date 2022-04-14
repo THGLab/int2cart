@@ -11,8 +11,12 @@ from sidechainnet import load
 from modelling.train import Trainer
 from modelling.utils.default_scalers import *
 from modelling.utils.get_gpu import handle_gpu
-from modelling.utils import load_data
 from modelling.losses.scalar_losses import prepare_losses
+from modelling.utils.infinite_data_loader import InfiniteDataLoader
+
+from modelling.utils.load_data import load_data
+
+torch.autograd.set_detect_anomaly(False)
 
 #
 settings_path = '../configs/debug.yml'
@@ -26,7 +30,7 @@ device = [torch.device(dev) for dev in handle_gpu(settings['general']['device'])
 
 
 # data
-train, val, test, _ = load_data(settings)
+train, val, test, infinite_val = load_data(settings)
 
 # model
 # model = get_model(settings)
@@ -103,7 +107,8 @@ best_results, succeeded = trainer.train(
     epochs=settings['training']['epochs'],
     train_dataloader=train,
     val_dataloader=val,
-    test_dataloader=test
+    test_dataloader=test,
+    infinite_val_data_loader=infinite_val
 )
 
 # Log hyperparameters and the best performance of this run

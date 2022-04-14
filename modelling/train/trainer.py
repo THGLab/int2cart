@@ -15,7 +15,7 @@ from torch import nn
 from datetime import datetime
 from modelling.train.metrics import rmse, structure_rmsd
 
-from modelling.utils import Logger, max_sampling, tensor_to_numpy
+from modelling.utils import Logger, max_sampling, tensor_to_numpy, set_model_parameters
 from modelling.utils.plotting import plot_scatter
 
 class Trainer:
@@ -32,6 +32,7 @@ class Trainer:
                  yml_path,
                  output_path,
                  script_name,
+                 initial_lr,
                  lr_scheduler,
                  bond_length_bin,
                  backbone_angle_bin,
@@ -62,6 +63,7 @@ class Trainer:
         self.debug = debug
         self.build_block_size = build_block_size
         self.central_residue = central_residue
+        self.current_lr = initial_lr
 
         if type(device) is list and len(device) > 1:
             self.multi_gpu = True
@@ -361,7 +363,7 @@ class Trainer:
                         "lengths": torch.tensor(batch.lengths)}
         self.logger.log_graph(save_model, batch_inputs)
 
-    def predict_and_evaulate(self, batch, use_builder=False, build_by_block=None, central_residue=None):
+    def predict_and_evaulate(self, batch, use_builder=False, build_by_block=None, central_residue=None, sample_weights=None):
         batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
                         "psi": batch.angs[:, :, 1].to(self.device[0]),
                         "omega": batch.angs[:, :, 2].to(self.device[0]),
@@ -382,7 +384,11 @@ class Trainer:
             preds = self.model(batch_inputs)
 
         if "scalar" in self.mode:
-            loss = self.loss_fn(preds, batch)
+            if sample_weights is not None:
+                loss = self.loss_fn(preds, batch, sample_weights=sample_weights)
+            else:
+                loss = self.loss_fn(preds, batch)
+            
         elif "building" in self.mode:
             loss = self.loss_fn(pred_dmats, batch, build_range)
 
@@ -416,9 +422,86 @@ class Trainer:
         
         return results
 
+    def get_resampled_weights(self, batch_train, batch_val):
+        """
+        Using the resample technique (Learning to Reweight Examples for Robust Deep Learning, 
+        https://arxiv.org/pdf/1803.09050.pdf) to train the model
+        """
+        batch_inputs_train = {"phi": batch_train.angs[:, :, 0].to(self.device[0]),
+                            "psi": batch_train.angs[:, :, 1].to(self.device[0]),
+                            "omega": batch_train.angs[:, :, 2].to(self.device[0]),
+                            "res_type": torch.argmax(batch_train.seqs, axis=-1).to(self.device[0]),
+                            "lengths": batch_train.lengths}
+        pred_model = deepcopy(self.model)
+        dual_model = deepcopy(self.model)
+        preds_train = pred_model(batch_inputs_train)
+        sample_weights = torch.zeros(batch_train.msks.shape, requires_grad=True, dtype=torch.float).to(self.device[0])
+        train_loss = self.loss_fn(preds_train, batch_train, sample_weights=sample_weights)
+        # train_loss = torch.mean(sample_weights.flatten())
+
+        # # save model state
+        # model_state = deepcopy(self.model.state_dict())
+
+        # first backward pass with retaining gradients with respect to sample weights
+        # self.model.zero_grad()
+        # train_loss.backward(create_graph=True)
+        # gradient_containing_params = {k:v for k,v in pred_model.named_parameters()}
+        # # do one "proposed" gradient update step and evaluate on validation data
+        # updated_state_dict = {k: gradient_containing_params[k].detach() - self.current_lr * gradient_containing_params[k].grad 
+        #     for k in gradient_containing_params}
+
+
+        params = {k:v for k,v in pred_model.named_parameters()}
+        param_grads = torch.autograd.grad(train_loss, params.values(), create_graph=True)
+        param_grads = dict(zip(params.keys(), param_grads))
+        updated_state_dict = {k: params[k].detach() - self.current_lr * param_grads[k] for k in params}
+        # for k in current_state_dict:
+        #     if k in gradient_containing_params:
+        #         updated_state_dict[k] = current_state_dict[k] - gradient_containing_params[k].grad
+        #     else:
+        #         updated_state_dict[k] = current_state_dict[k]
+
+        set_model_parameters(dual_model, updated_state_dict)
+        # scalar_prediction_model.load_state_dict(updated_state_dict)
+
+        batch_inputs_val = {"phi": batch_val.angs[:, :, 0].to(self.device[0]),
+                            "psi": batch_val.angs[:, :, 1].to(self.device[0]),
+                            "omega": batch_val.angs[:, :, 2].to(self.device[0]),
+                            "res_type": torch.argmax(batch_val.seqs, axis=-1).to(self.device[0]),
+                            "lengths": batch_val.lengths}
+
+
+        preds_val = dual_model(batch_inputs_val)
+        val_loss = self.loss_fn(preds_val, batch_val)
+        # val_loss = torch.mean(torch.cat([item.flatten() for item in preds_val]))
+        sample_weight_grads = torch.autograd.grad(val_loss, sample_weights)[0].detach()
+        # sample_weight_grads = torch.zeros_like(sample_weights)
+
+        # calculate adjusted sample weights from gradients
+        clamped_grads = torch.maximum(-sample_weight_grads, torch.tensor(0., device=sample_weight_grads.device))
+        grads_sum = torch.sum(clamped_grads) + 1e-8
+        new_sample_weights = clamped_grads / grads_sum
+
+        # # recover old model state
+        # self.model.load_state_dict(model_state)
+        # self.model.zero_grad()
+
+        # delete models
+        # empty_state_dict = {k: None for k in gradient_containing_params}
+        # set_model_parameters(pred_model, empty_state_dict)
+        # set_model_parameters(dual_model, empty_state_dict)
+        for p in pred_model.parameters():
+            p.grad = None   
+        torch.cuda.empty_cache()
+        return new_sample_weights
+
+
+        
+
     def train(self,
               epochs,
               train_dataloader,
+              infinite_val_data_loader=None,
               val_dataloader=None,
               test_dataloader=None,
               clip_grad=0):
@@ -496,7 +579,19 @@ class Trainer:
                 last_state_dict = deepcopy(self.model.state_dict())
                 last_optimizer_state_dict = deepcopy(self.optimizer.state_dict())
                 if "scalar" in self.mode:
-                    result = self.predict_and_evaulate(batch, use_builder=False, central_residue=self.central_residue)
+                    if infinite_val_data_loader is None:
+                        result = self.predict_and_evaulate(batch, use_builder=False, central_residue=self.central_residue)
+                    else:
+                        val_for_sample_weights = next(infinite_val_data_loader)
+                        
+                        # double backpropagation for RNN is not supported by cudnn, so need to disable cudnn here
+                        with torch.backends.cudnn.flags(enabled=False):
+                            sample_weights = self.get_resampled_weights(batch, val_for_sample_weights)
+                        self.optimizer.zero_grad()
+                        result = self.predict_and_evaulate(batch, use_builder=False, central_residue=self.central_residue, 
+                        sample_weights=sample_weights)
+                        # result = self.predict_and_evaulate(batch, use_builder=False, central_residue=self.central_residue, 
+                        # sample_weights=None)
                 elif "building" in self.mode:
                     result = self.predict_and_evaulate(batch, use_builder=True, build_by_block=self.build_block_size, central_residue=self.central_residue)
                 loss = result['loss']
@@ -699,6 +794,7 @@ class Trainer:
                         self.optimizer.param_groups):
                         # self.scheduler.optimizer.param_groups):
                     old_lr = float(param_group["lr"])
+            self.current_lr = old_lr
             
             epoch_results = {
                 "epoch": self.epoch,
