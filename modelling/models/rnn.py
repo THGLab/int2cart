@@ -724,10 +724,10 @@ class RecurrentModel(nn.Module):
         self.residue_embedding = nn.Embedding(20, res_embedding_size)
         self.filters = nn.ModuleList([MLP(smearing_parameters['n_gaussians'], filter_size,
                           n_layers=n_filter_layers,
-                          activation=nn.ReLU()) for _ in range(3)])
+                          activation=nn.ReLU()) for _ in range(4)])
 
-        # phi,psi,omega each has filter_out, and then also embedded residue type
-        self.mixing_filter = MLP(filter_size*3+res_embedding_size, filter_size,
+        # phi,psi,omega, chi1 each has filter_out, and then also embedded residue type
+        self.mixing_filter = MLP(filter_size*4+res_embedding_size, filter_size,
                           n_layers=n_filter_layers,
                           activation=nn.ReLU())
 
@@ -790,7 +790,7 @@ class RecurrentModel(nn.Module):
 
         Parameters
         ----------
-        inputs: dictionary with keys {"phi", "psi", "omega", "res_type"}
+        inputs: dictionary with keys {"phi", "psi", "omega", "chi1, "res_type"}
             "phi", "psi", "omega": float torch.tensor (l_seq, batch,)
             "res_type": long torch.tensor (l_seq, batch)
             "lengths": list of long (batch)
@@ -799,18 +799,20 @@ class RecurrentModel(nn.Module):
         phi_smeared = self.angle_smearing(inputs["phi"] * 180/np.pi)
         psi_smeared = self.angle_smearing(inputs["psi"] * 180/np.pi)
         omega_smeared = self.angle_smearing(inputs["omega"] * 180/np.pi)
+        chi1_smeared = self.angle_smearing(inputs["chi1"] * 180/np.pi)
 
 
         # filter
         phi_filtered = self.filters[0](phi_smeared)
         psi_filtered = self.filters[1](psi_smeared)
         omega_filtered = self.filters[2](omega_smeared)
+        chi1_filtered = self.filters[3](chi1_smeared)
 
         res_type_embedded = self.residue_embedding(inputs["res_type"])
 
 
         # concatenate all features
-        x = torch.cat([phi_filtered, psi_filtered, omega_filtered, res_type_embedded], dim=2)
+        x = torch.cat([phi_filtered, psi_filtered, omega_filtered, chi1_filtered, res_type_embedded], dim=2)
         # mixing filter
         x = self.mixing_filter(x)
 

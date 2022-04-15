@@ -50,7 +50,7 @@ class BackboneBuilder(nn.Module):
     def forward(self, inputs):
         predictions = self.predictor(inputs)
         if self.convert_prediction is not None:
-            angle_preds, all_blens = self.convert_prediction(predictions)
+            angle_preds, all_blens, sc_blens, sc_angs = self.convert_prediction(predictions)
             angle_preds = list(torch.moveaxis(angle_preds, -1, 0)[:, :, :, None] * np.pi / 180)
         else:
             angle_preds = predictions[:9]

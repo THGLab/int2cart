@@ -27,7 +27,7 @@ def prepare_losses(settings, angle_digitizer, n_ca_blens_digitizer, ca_c_blens_d
     
     loss_term_weights = settings['training']['loss_term_weigths']
     if type(loss_term_weights) is not list:
-        loss_term_weights = [loss_term_weights] * 12
+        loss_term_weights = [loss_term_weights] * 14
 
 
 
@@ -39,47 +39,39 @@ def prepare_losses(settings, angle_digitizer, n_ca_blens_digitizer, ca_c_blens_d
         device = preds[0].device
         
         # angle losses
-        if settings['bins']['backbone_angle_bin']:
-            angle_pred_raw = torch.moveaxis(torch.stack(preds[:9], axis=-1), 2, 1)
-            angle_targets = batch.angs[:, :, 3:] * 180 / np.pi
-            masked_angle_loss = categorical_loss(angle_pred_raw, angle_targets, angle_digitizer)
-        else:
-            backbone_angle_preds = torch.cat(preds[:3], axis=-1)
-            backbone_angle_targets = batch.angs[:, :, 3:6]
-            masked_backbone_angle_loss = numerical_loss(backbone_angle_preds, backbone_angle_targets, 
-            [default_stds["N_CA_C_bond_angle"], default_stds["CA_C_N_bond_angle"], default_stds["C_N_CA_bond_angle"]])
-            
-            sidechain_torsion_preds = torch.moveaxis(torch.stack(preds[3:9], axis=-1), 2, 1)
-            sidechain_torsion_targets = batch.angs[:, :, 6:] * 180 / np.pi
-            masked_sidechain_torsion_loss = categorical_loss(sidechain_torsion_preds, sidechain_torsion_targets, angle_digitizer)
 
-            masked_angle_loss = torch.cat([masked_backbone_angle_loss, masked_sidechain_torsion_loss], dim=-1)
+        backbone_angle_preds = torch.cat(preds[:3], axis=-1)
+        backbone_angle_targets = batch.angs[:, :, 3:6]
+        masked_backbone_angle_loss = numerical_loss(backbone_angle_preds, backbone_angle_targets, 
+        [default_stds["N_CA_C_bond_angle"], default_stds["CA_C_N_bond_angle"], default_stds["C_N_CA_bond_angle"]])
+        
+        sidechain_torsion_preds = torch.moveaxis(torch.stack(preds[3:9], axis=-1), 2, 1)
+        sidechain_torsion_targets = batch.angs[:, :, 6:] * 180 / np.pi
+        masked_sidechain_torsion_loss = categorical_loss(sidechain_torsion_preds, sidechain_torsion_targets, angle_digitizer)
+
+        masked_angle_loss = torch.cat([masked_backbone_angle_loss, masked_sidechain_torsion_loss], dim=-1)
 
        
         # bond length losses
-        if settings['bins']['bond_length_bin']:
-            n_ca_blens_pred_raw = torch.moveaxis(preds[9], -1, 1)
-            n_ca_blens_targets = batch.blens[:, :, 0]
-            n_ca_blens_loss = categorical_loss(n_ca_blens_pred_raw, n_ca_blens_targets, n_ca_blens_digitizer)
+        blens_preds = torch.cat(preds[9:12], axis=-1)
+        blens_targets = batch.blens
+        masked_blens_loss = numerical_loss(blens_preds, blens_targets, 
+        [default_stds["N_CA_bond_length"], default_stds["CA_C_bond_length"], default_stds["C_N_bond_length"]])
 
-            ca_c_blens_pred_raw = torch.moveaxis(preds[10], -1, 1)
-            ca_c_blens_targets = batch.blens[:, :, 1]
-            ca_c_blens_loss = categorical_loss(ca_c_blens_pred_raw, ca_c_blens_targets, ca_c_blens_digitizer)
+        # sidechain bond length losses
+        sc_blens_preds = preds[12]
+        sc_blens_targets = batch.sc_blens
+        masked_sc_blens_loss = numerical_loss(sc_blens_preds, sc_blens_targets, default_stds["CA_CB_bond_length"])
 
-            c_n_blens_pred_raw = torch.moveaxis(preds[11], -1, 1)
-            c_n_blens_targets = batch.blens[:, :, 2]
-            c_n_blens_loss = categorical_loss(c_n_blens_pred_raw, c_n_blens_targets, c_n_blens_digitizer)
-            
-            masked_blens_loss = torch.stack([n_ca_blens_loss, ca_c_blens_loss, c_n_blens_loss], dim=-1)
-        else:
-            blens_preds = torch.cat(preds[9:], axis=-1)
-            blens_targets = batch.blens
-            masked_blens_loss = numerical_loss(blens_preds, blens_targets, 
-            [default_stds["N_CA_bond_length"], default_stds["CA_C_bond_length"], default_stds["C_N_bond_length"]])
+        # sidechain bond angle losses
+        sc_ang_preds = preds[13]
+        sc_ang_targets = batch.sc_angs
+        masked_sc_ang_loss = numerical_loss(sc_ang_preds, sc_ang_targets, default_stds["N_CA_CB_bond_angle"])
         
         # masked total loss
         mask = batch.msks.to(device)
-        weighted_loss = torch.sum(torch.cat([masked_angle_loss, masked_blens_loss], dim=-1) * \
+        weighted_loss = torch.sum(torch.cat([masked_angle_loss, masked_blens_loss, \
+            masked_sc_blens_loss, masked_sc_ang_loss], dim=-1) * \
             torch.tensor(loss_term_weights).to(device), dim=-1)
         if rescale_by_length:
             length_scaler = torch.tensor(batch.lengths, device=device)[:, None] / 100

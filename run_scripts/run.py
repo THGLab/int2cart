@@ -82,8 +82,6 @@ trainer = Trainer(
     script_name=__file__,
     initial_lr=settings['training']['lr'],
     lr_scheduler=settings['training']['lr_scheduler'],
-    bond_length_bin=settings['bins']['bond_length_bin'],
-    backbone_angle_bin=settings['bins']['backbone_angle_bin'],
     bin_references={
         "angles": angle_digitizer.get_reference(),
         "n_ca_bond_length": n_ca_blens_digitizer.get_reference(),
