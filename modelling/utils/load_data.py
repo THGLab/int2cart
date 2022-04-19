@@ -6,13 +6,19 @@ from sidechainnet import load
 from modelling.utils.infinite_data_loader import InfiniteDataLoader
 from modelling.utils.multiple_data_loader import MultipleDataLoader
 
-def load_data(settings):
-    data = load(settings['data']['casp_version'],
-                thinning=settings['data']['thinning'],
+def load_data(settings, use_debug_dataset=False):
+    if use_debug_dataset:
+        data = load("debug", 
                 with_pytorch='dataloaders',
                 scn_dir=settings['data']['scn_data_dir'],
-                batch_size=settings['training']['batch_size'],
-                filter_by_resolution=settings['data'].get("filter_resolution", False))
+                batch_size=settings['training']['batch_size'])
+    else:
+        data = load(settings['data']['casp_version'],
+                    thinning=settings['data']['thinning'],
+                    with_pytorch='dataloaders',
+                    scn_dir=settings['data']['scn_data_dir'],
+                    batch_size=settings['training']['batch_size'],
+                    filter_by_resolution=settings['data'].get("filter_resolution", False))
 
     train = data['train']
     validation_similarities = settings["data"]["validation_similarity_level"]

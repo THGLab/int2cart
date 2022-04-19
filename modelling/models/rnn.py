@@ -691,6 +691,7 @@ class VAEGRUEncoderAtomwise(nn.Module):
 class RecurrentModel(nn.Module):
 
     def __init__(self,
+                inputs,
                  recurrent,
                  smearing_parameters,
                  n_filter_layers,
@@ -699,7 +700,8 @@ class RecurrentModel(nn.Module):
                  rec_stack_size,
                  rec_neurons_num,
                  rec_dropout,
-                 use_layernorm=False
+                 use_layernorm=False,
+
                  ):
         """
         GRU Recurrent units for the language model.
@@ -717,17 +719,23 @@ class RecurrentModel(nn.Module):
         latent_dimension; int
         """
         super(RecurrentModel, self).__init__()
+        self.inputs = inputs
+        input_has_aa = int("aa" in inputs)
+        self.input_has_aa = input_has_aa
+        self.angle_inputs = [item for item in inputs if item != 'aa']
         self.rec_stack_size = rec_stack_size
         self.rec_neurons_num = rec_neurons_num
         # filter and transform torsion ohe
         self.angle_smearing = GaussianSmearing(**smearing_parameters)
         self.residue_embedding = nn.Embedding(20, res_embedding_size)
+        n_input_angles = len(inputs) - input_has_aa
         self.filters = nn.ModuleList([MLP(smearing_parameters['n_gaussians'], filter_size,
                           n_layers=n_filter_layers,
-                          activation=nn.ReLU()) for _ in range(4)])
+                          activation=nn.ReLU()) for _ in range(n_input_angles)])
 
         # phi,psi,omega, chi1 each has filter_out, and then also embedded residue type
-        self.mixing_filter = MLP(filter_size*4+res_embedding_size, filter_size,
+        mlp_input_dim = filter_size * n_input_angles + res_embedding_size * input_has_aa
+        self.mixing_filter = MLP(mlp_input_dim, filter_size,
                           n_layers=n_filter_layers,
                           activation=nn.ReLU())
 
@@ -796,23 +804,31 @@ class RecurrentModel(nn.Module):
             "lengths": list of long (batch)
         """
         batch_size = len(inputs["phi"])
-        phi_smeared = self.angle_smearing(inputs["phi"] * 180/np.pi)
-        psi_smeared = self.angle_smearing(inputs["psi"] * 180/np.pi)
-        omega_smeared = self.angle_smearing(inputs["omega"] * 180/np.pi)
-        chi1_smeared = self.angle_smearing(inputs["chi1"] * 180/np.pi)
+        filtered_inputs = []
+        for idx, angle_type in enumerate(self.angle_inputs):
+            smeared_angle = self.angle_smearing(inputs[angle_type] * 180/np.pi)
+            filtered_angle = self.filters[idx](smeared_angle)
+            filtered_inputs.append(filtered_angle)
+
+        # phi_smeared = self.angle_smearing(inputs["phi"] * 180/np.pi)
+        # psi_smeared = self.angle_smearing(inputs["psi"] * 180/np.pi)
+        # omega_smeared = self.angle_smearing(inputs["omega"] * 180/np.pi)
+        # chi1_smeared = self.angle_smearing(inputs["chi1"] * 180/np.pi)
 
 
-        # filter
-        phi_filtered = self.filters[0](phi_smeared)
-        psi_filtered = self.filters[1](psi_smeared)
-        omega_filtered = self.filters[2](omega_smeared)
-        chi1_filtered = self.filters[3](chi1_smeared)
+        # # filter
+        # phi_filtered = self.filters[0](phi_smeared)
+        # psi_filtered = self.filters[1](psi_smeared)
+        # omega_filtered = self.filters[2](omega_smeared)
+        # chi1_filtered = self.filters[3](chi1_smeared)
 
-        res_type_embedded = self.residue_embedding(inputs["res_type"])
+        if self.input_has_aa:
+            res_type_embedded = self.residue_embedding(inputs["res_type"])
+            filtered_inputs.append(res_type_embedded)
 
 
         # concatenate all features
-        x = torch.cat([phi_filtered, psi_filtered, omega_filtered, chi1_filtered, res_type_embedded], dim=2)
+        x = torch.cat(filtered_inputs, dim=2)
         # mixing filter
         x = self.mixing_filter(x)
 

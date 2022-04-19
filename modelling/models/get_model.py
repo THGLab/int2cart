@@ -13,7 +13,8 @@ def get_model(settings):
     latent_dim = settings['model']['rec_neurons_num'] 
     hidden_dim = latent_dim // 2
 
-    rnn_encoder = RecurrentModel(recurrent=settings['model']['recurrent'],
+    rnn_encoder = RecurrentModel(inputs=settings['model']['inputs'],
+                            recurrent=settings['model']['recurrent'],
                             smearing_parameters=smearing,
                             n_filter_layers=settings['model']['n_filter_layers'],
                             filter_size=settings['model']['filter_size'],
@@ -23,32 +24,34 @@ def get_model(settings):
                             rec_dropout=settings['model']['rec_dropout'])
 
     # prepare output heads
-    n_ca_blens_predictor = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']), 
+    all_predictor_heads = {}
+    all_predictor_heads['d1'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']), 
         ScaleShift(default_means["N_CA_bond_length"], default_stds["N_CA_bond_length"], False))
-    ca_c_blens_predictor = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
+    all_predictor_heads['d2'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
         ScaleShift(default_means["CA_C_bond_length"], default_stds["CA_C_bond_length"], False))
-    c_n_blens_predictor = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
+    all_predictor_heads['d3'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
         ScaleShift(default_means["C_N_bond_length"], default_stds["C_N_bond_length"], False))
 
 
-    n_ca_c_angle_predictor = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
+    all_predictor_heads['theta1'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
         ScaleShift(default_means["N_CA_C_bond_angle"], default_stds["N_CA_C_bond_angle"], True))
-    ca_c_n_angle_predictor = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']), 
+    all_predictor_heads['theta2'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']), 
         ScaleShift(default_means["CA_C_N_bond_angle"], default_stds["CA_C_N_bond_angle"], True))
-    c_n_ca_angle_predictor = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']), 
+    all_predictor_heads['theta3'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']), 
         ScaleShift(default_means["C_N_CA_bond_angle"], default_stds["C_N_CA_bond_angle"], True))
 
 
-    ca_cb_blens_predictor = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']), 
+    all_predictor_heads['r1'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']), 
         ScaleShift(default_means["CA_CB_bond_length"], default_stds["CA_CB_bond_length"], False))
     
-    n_ca_cb_angle_predictor = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
+    all_predictor_heads['alpha1'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
         ScaleShift(default_means["N_CA_CB_bond_angle"], default_stds["N_CA_CB_bond_angle"], True))
 
-    sidechain_torsion_predictors = [MLP(latent_dim, settings['bins']['angle_bin_count'], n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']) for _ in range(6)]
-    all_predictor_heads = [n_ca_c_angle_predictor, ca_c_n_angle_predictor, c_n_ca_angle_predictor] +\
-        sidechain_torsion_predictors + [n_ca_blens_predictor, ca_c_blens_predictor, c_n_blens_predictor] +\
-            [ca_cb_blens_predictor, n_ca_cb_angle_predictor]
+    all_predictor_heads['chis'] = [MLP(latent_dim, settings['bins']['angle_bin_count'], n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']) for _ in range(6)]
+    needed_predictor_heads = {item: all_predictor_heads[item] for item in settings['model']['outputs']}
+    # all_predictor_heads = [n_ca_c_angle_predictor, ca_c_n_angle_predictor, c_n_ca_angle_predictor] +\
+    #     sidechain_torsion_predictors + [n_ca_blens_predictor, ca_c_blens_predictor, c_n_blens_predictor] +\
+    #         [ca_cb_blens_predictor, n_ca_cb_angle_predictor]
     
-    model = MultiHeadModel(rnn_encoder, all_predictor_heads)
+    model = MultiHeadModel(rnn_encoder, needed_predictor_heads)
     return model

@@ -335,31 +335,49 @@ class Trainer:
     def convert_prediction(self, preds, data_format="numpy"):
 
         if data_format == "numpy":
-            backbone_angle_preds = tensor_to_numpy(torch.cat(preds[:3], axis=-1)) * 180/np.pi
-            sidechain_torsion_preds = max_sampling(torch.stack(preds[3:9], axis=2),
-                                    self.bin_references["angles"],
-                                    "numpy")
-            angle_preds = np.concatenate([backbone_angle_preds, sidechain_torsion_preds], axis=-1)
+            angle_preds = tensor_to_numpy(torch.cat([preds["theta1"], preds["theta2"], preds["theta3"]], axis=-1)) * 180/np.pi
+            if "chis" in preds:
+                sidechain_torsion_preds = max_sampling(torch.stack(preds["chis"], axis=2),
+                                        self.bin_references["angles"],
+                                        "numpy")
+            else:
+                sidechain_torsion_preds = np.concatenate([np.zeros_like(angle_preds)] * 2, axis=-1)
+            angle_preds = np.concatenate([angle_preds, sidechain_torsion_preds], axis=-1)
         elif data_format == "tensor":
-            backbone_angle_preds = torch.cat(preds[:3], axis=-1) * 180/np.pi
-            sidechain_torsion_preds = max_sampling(torch.stack(preds[3:9], axis=2),
+            angle_preds = torch.cat([preds["theta1"], preds["theta2"], preds["theta3"]], axis=-1) * 180/np.pi
+            if "chis" in preds:
+                sidechain_torsion_preds = max_sampling(torch.stack(preds["chis"], axis=2),
                                     self.bin_references["angles"],
                                     "tensor")
-            angle_preds = torch.cat([backbone_angle_preds, sidechain_torsion_preds], axis=-1)
+            else:
+                sidechain_torsion_preds = torch.cat([torch.zeros_like(angle_preds)] * 2, axis=-1)
+            angle_preds = torch.cat([angle_preds, sidechain_torsion_preds], axis=-1)
 
 
         if data_format == "numpy":
-            blens_preds = tensor_to_numpy(torch.cat(preds[9:12], axis=-1))
+            blens_preds = tensor_to_numpy(torch.cat([preds["d1"], preds["d2"], preds["d3"]], axis=-1))
         elif data_format == "tensor":
-            blens_preds = torch.cat(preds[9:12], axis=-1)
+            blens_preds = torch.cat([preds["d1"], preds["d2"], preds["d3"]], axis=-1)
 
         # sidechain bond lengths and bond angles
         if data_format == "numpy":
-            sc_blens_preds = tensor_to_numpy(preds[12])
-            sc_ang_preds = tensor_to_numpy(preds[13]) * 180/np.pi
+            if "r1" in preds:
+                sc_blens_preds = tensor_to_numpy(preds["r1"])
+            else:
+                sc_blens_preds = np.zeros(angle_preds.shape[:-1] + (1,))
+            if "alpha1" in preds:
+                sc_ang_preds = tensor_to_numpy(preds["alpha1"]) * 180/np.pi
+            else:
+                sc_ang_preds = np.zeros(angle_preds.shape[:-1] + (1,))
         elif data_format == "tensor":
-            sc_blens_preds = preds[12]
-            sc_ang_preds = preds[13] * 180/np.pi
+            if "r1" in preds:
+                sc_blens_preds = preds["r1"]
+            else:
+                sc_blens_preds = torch.zeros(angle_preds.shape[:-1] + (1,), device=angle_preds.device)
+            if "alpha1" in preds:
+                sc_ang_preds = preds["alpha1"] * 180/np.pi
+            else:
+                sc_ang_preds = torch.zeros(angle_preds.shape[:-1] + (1,), device=angle_preds.device)
         return angle_preds, blens_preds, sc_blens_preds, sc_ang_preds
 
     def log_graph(self, save_model, batch):
