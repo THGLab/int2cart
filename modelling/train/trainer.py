@@ -1,6 +1,5 @@
 from copy import deepcopy
 import os
-from ssl import cert_time_to_seconds
 import numpy as np
 import pandas as pd
 import torch
@@ -34,8 +33,6 @@ class Trainer:
                  script_name,
                  initial_lr,
                  lr_scheduler,
-                 bond_length_bin,
-                 backbone_angle_bin,
                  mode,
                  bin_references=None,
                  checkpoint_log=1,
@@ -55,8 +52,6 @@ class Trainer:
         self.builder.set_prediction_conversion_func(partial(self.convert_prediction, data_format="tensor"))
         self.loss_fn = loss_fn
         self.optimizer = optimizer
-        self.bond_length_bin = bond_length_bin
-        self.backbone_angle_bin = backbone_angle_bin
         self.bin_references = bin_references
         self.device = device
         self.preempt = preempt
@@ -269,8 +264,12 @@ class Trainer:
         losses = []
         angle_preds = []
         blens_preds = []
+        sc_blens_preds = []
+        sc_ang_preds = []
         angle_targets = []
         blens_targets = []
+        sc_blens_targets = []
+        sc_ang_targets = []
         structure_rmsds = []
         labels = []
 
@@ -281,8 +280,12 @@ class Trainer:
             if central_residue is None:
                 angle_preds.extend(results['angle_preds'])
                 blens_preds.extend(results['blens_preds'])
+                sc_blens_preds.extend(results['sc_blens_preds'])
+                sc_ang_preds.extend(results['sc_ang_preds'])
                 angle_targets.extend(results['angle_targets'])
                 blens_targets.extend(results['blens_targets'])
+                sc_blens_targets.extend(results['sc_blens_targets'])
+                sc_ang_targets.extend(results['sc_ang_targets'])
             else:
                 angle_preds.append(results['angle_preds'][:, central_residue])
                 blens_preds.append(results['blens_preds'][:, central_residue])
@@ -294,23 +297,35 @@ class Trainer:
 
         angle_preds = np.concatenate(angle_preds, axis=0)
         blens_preds = np.concatenate(blens_preds)
+        sc_blens_preds = np.concatenate(sc_blens_preds)
+        sc_ang_preds = np.concatenate(sc_ang_preds)
         angle_targets = np.concatenate(angle_targets)
         blens_targets = np.concatenate(blens_targets)
+        sc_blens_targets = np.concatenate(sc_blens_targets)
+        sc_ang_targets = np.concatenate(sc_ang_targets)
 
         bb_angle_rmse = rmse(angle_preds[:,:3], angle_targets[:,:3] * 180 / np.pi, periodic=True)
         sc_tor_rmse = rmse(angle_preds[:,3:], angle_targets[:,3:] * 180 / np.pi, periodic=True)
         blens_rmse = rmse(blens_preds, blens_targets)
+        sc_blens_rmse = rmse(sc_blens_preds, sc_blens_targets)
+        sc_ang_rmse = rmse(sc_ang_preds, sc_ang_targets * 180 / np.pi, periodic=True)
 
 
         outputs = dict()
         outputs['loss'] = np.mean(losses)
         outputs['angle_preds'] = angle_preds
         outputs['blens_preds'] = blens_preds
+        outputs['sc_blens_preds'] = sc_blens_preds
+        outputs['sc_ang_preds'] = sc_ang_preds
         outputs['angle_targets'] = angle_targets
         outputs["blens_targets"] = blens_targets
+        outputs['sc_blens_targets'] = sc_blens_targets
+        outputs['sc_ang_targets'] = sc_ang_targets
         outputs["bb_angle_rmse"] = bb_angle_rmse
         outputs["sc_tor_rmse"] = sc_tor_rmse
         outputs["blens_rmse"] = blens_rmse
+        outputs['sc_blens_rmse'] = sc_blens_rmse
+        outputs['sc_ang_rmse'] = sc_ang_rmse
         outputs["labels"] = labels
 
         outputs['structure_rmsds'] = structure_rmsds
@@ -318,47 +333,58 @@ class Trainer:
         return outputs
 
     def convert_prediction(self, preds, data_format="numpy"):
-        if self.backbone_angle_bin:
-            angle_preds = max_sampling(torch.stack(preds[:9], axis=2),
-                                    self.bin_references["angles"],
-                                    data_format)
-        else:
-            if data_format == "numpy":
-                backbone_angle_preds = tensor_to_numpy(torch.cat(preds[:3], axis=-1)) * 180/np.pi
-                sidechain_torsion_preds = max_sampling(torch.stack(preds[3:9], axis=2),
+
+        if data_format == "numpy":
+            angle_preds = tensor_to_numpy(torch.cat([preds["theta1"], preds["theta2"], preds["theta3"]], axis=-1)) * 180/np.pi
+            if "chis" in preds:
+                sidechain_torsion_preds = max_sampling(torch.stack(preds["chis"], axis=2),
                                         self.bin_references["angles"],
                                         "numpy")
-                angle_preds = np.concatenate([backbone_angle_preds, sidechain_torsion_preds], axis=-1)
-            elif data_format == "tensor":
-                backbone_angle_preds = torch.cat(preds[:3], axis=-1) * 180/np.pi
-                sidechain_torsion_preds = max_sampling(torch.stack(preds[3:9], axis=2),
-                                        self.bin_references["angles"],
-                                        "tensor")
-                angle_preds = torch.cat([backbone_angle_preds, sidechain_torsion_preds], axis=-1)
+            else:
+                sidechain_torsion_preds = np.concatenate([np.zeros_like(angle_preds)] * 2, axis=-1)
+            angle_preds = np.concatenate([angle_preds, sidechain_torsion_preds], axis=-1)
+        elif data_format == "tensor":
+            angle_preds = torch.cat([preds["theta1"], preds["theta2"], preds["theta3"]], axis=-1) * 180/np.pi
+            if "chis" in preds:
+                sidechain_torsion_preds = max_sampling(torch.stack(preds["chis"], axis=2),
+                                    self.bin_references["angles"],
+                                    "tensor")
+            else:
+                sidechain_torsion_preds = torch.cat([torch.zeros_like(angle_preds)] * 2, axis=-1)
+            angle_preds = torch.cat([angle_preds, sidechain_torsion_preds], axis=-1)
 
-        if self.bond_length_bin:
-            n_ca_blen_preds = max_sampling(preds[9], self.bin_references["n_ca_bond_length"], data_format)
-            ca_c_blen_preds = max_sampling(preds[10], self.bin_references["ca_c_bond_length"], data_format)
-            c_n_blen_preds = max_sampling(preds[11], self.bin_references["c_n_bond_length"], data_format)
-            if data_format == "numpy":
-                blens_preds = np.stack([n_ca_blen_preds,
-                                        ca_c_blen_preds,
-                                        c_n_blen_preds], axis=-1)
-            elif data_format == "tensor":
-                blens_preds = torch.stack([n_ca_blen_preds,
-                                        ca_c_blen_preds,
-                                        c_n_blen_preds], axis=-1)
-        else:
-            if data_format == "numpy":
-                blens_preds = tensor_to_numpy(torch.cat(preds[9:], axis=-1))
-            elif data_format == "tensor":
-                blens_preds = torch.cat(preds[9:], axis=-1)
-        return angle_preds, blens_preds
+
+        if data_format == "numpy":
+            blens_preds = tensor_to_numpy(torch.cat([preds["d1"], preds["d2"], preds["d3"]], axis=-1))
+        elif data_format == "tensor":
+            blens_preds = torch.cat([preds["d1"], preds["d2"], preds["d3"]], axis=-1)
+
+        # sidechain bond lengths and bond angles
+        if data_format == "numpy":
+            if "r1" in preds:
+                sc_blens_preds = tensor_to_numpy(preds["r1"])
+            else:
+                sc_blens_preds = np.zeros(angle_preds.shape[:-1] + (1,))
+            if "alpha1" in preds:
+                sc_ang_preds = tensor_to_numpy(preds["alpha1"]) * 180/np.pi
+            else:
+                sc_ang_preds = np.zeros(angle_preds.shape[:-1] + (1,))
+        elif data_format == "tensor":
+            if "r1" in preds:
+                sc_blens_preds = preds["r1"]
+            else:
+                sc_blens_preds = torch.zeros(angle_preds.shape[:-1] + (1,), device=angle_preds.device)
+            if "alpha1" in preds:
+                sc_ang_preds = preds["alpha1"] * 180/np.pi
+            else:
+                sc_ang_preds = torch.zeros(angle_preds.shape[:-1] + (1,), device=angle_preds.device)
+        return angle_preds, blens_preds, sc_blens_preds, sc_ang_preds
 
     def log_graph(self, save_model, batch):
         batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
                         "psi": batch.angs[:, :, 1].to(self.device[0]),
                         "omega": batch.angs[:, :, 2].to(self.device[0]),
+                        "chi1": batch.angs[:, :, 6].to(self.device[0]),
                         "res_type": torch.argmax(batch.seqs, axis=-1).to(self.device[0]),
                         "lengths": torch.tensor(batch.lengths)}
         self.logger.log_graph(save_model, batch_inputs)
@@ -367,6 +393,7 @@ class Trainer:
         batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
                         "psi": batch.angs[:, :, 1].to(self.device[0]),
                         "omega": batch.angs[:, :, 2].to(self.device[0]),
+                        "chi1": batch.angs[:, :, 6].to(self.device[0]),
                         "res_type": torch.argmax(batch.seqs, axis=-1).to(self.device[0]),
                         "lengths": batch.lengths}
         build_range = None
@@ -392,7 +419,7 @@ class Trainer:
         elif "building" in self.mode:
             loss = self.loss_fn(pred_dmats, batch, build_range)
 
-        angle_preds, blens_preds = self.convert_prediction(preds)
+        angle_preds, blens_preds, sc_blens_preds, sc_ang_preds = self.convert_prediction(preds)
         if central_residue is not None:
             backbone_angle_rmse = rmse(angle_preds[:, central_residue, :3], batch.angs[:, central_residue, 3:6] * 180 / np.pi, periodic=True)
             sidechain_torsion_rmse = rmse(angle_preds[:, central_residue, 3:], batch.angs[:, central_residue, 6:] * 180 / np.pi, periodic=True)
@@ -401,15 +428,23 @@ class Trainer:
             backbone_angle_rmse = rmse(angle_preds[:, :, :3], batch.angs[:, :, 3:6] * 180 / np.pi, periodic=True)
             sidechain_torsion_rmse = rmse(angle_preds[:, :, 3:], batch.angs[:, :, 6:] * 180 / np.pi, periodic=True)
             blens_rmse = rmse(blens_preds, batch.blens)
+            sidechain_blens_rmse = rmse(sc_blens_preds, batch.sc_blens)
+            sidechain_ang_rmse = rmse(sc_ang_preds, batch.sc_angs * 180 / np.pi, periodic=True)
 
         results = {"loss": loss,
                    "angle_preds": angle_preds,
                    "blens_preds": blens_preds,
+                   "sc_blens_preds": sc_blens_preds,
+                   "sc_ang_preds": sc_ang_preds,
                    "angle_targets": tensor_to_numpy(batch.angs[:,:,3:]),
                    "blens_targets": tensor_to_numpy(batch.blens),
+                   "sc_blens_targets": tensor_to_numpy(batch.sc_blens),
+                   "sc_ang_targets": tensor_to_numpy(batch.sc_angs),
                    "backbone_angle_rmse": backbone_angle_rmse,
                    "sidechain_torsion_rmse": sidechain_torsion_rmse,
                    "blens_rmse": blens_rmse,
+                   "sc_blens_rmse": sidechain_blens_rmse,
+                   "sc_ang_rmse": sidechain_ang_rmse,
                    "ids": batch.pids}
 
         if use_builder:
@@ -430,6 +465,7 @@ class Trainer:
         batch_inputs_train = {"phi": batch_train.angs[:, :, 0].to(self.device[0]),
                             "psi": batch_train.angs[:, :, 1].to(self.device[0]),
                             "omega": batch_train.angs[:, :, 2].to(self.device[0]),
+                            "chi1": batch.angs[:, :, 6].to(self.device[0]),
                             "res_type": torch.argmax(batch_train.seqs, axis=-1).to(self.device[0]),
                             "lengths": batch_train.lengths}
         pred_model = deepcopy(self.model)
@@ -556,6 +592,8 @@ class Trainer:
             rmse_bb_angles = []
             rmse_sc_tor = []
             rmse_bonds = []
+            rmse_sc_blens = []
+            rmse_sc_angs = []
             structure_rmsds = []
             step_losses = []
             step_labels = []
@@ -611,6 +649,8 @@ class Trainer:
                 rmse_bb_angles.append(result['backbone_angle_rmse'])
                 rmse_sc_tor.append(result['sidechain_torsion_rmse'])
                 rmse_bonds.append(result['blens_rmse'])
+                rmse_sc_blens.append(result['sc_blens_rmse'])
+                rmse_sc_angs.append(result['sc_ang_rmse'])
                 if 'mean_structure_rmsd' in result:
                     structure_rmsds.append(result['mean_structure_rmsd'])
                 if current_loss > 100:
@@ -654,6 +694,8 @@ class Trainer:
             rmse_bb_angles = np.mean(rmse_bb_angles[-100:])
             rmse_sc_tor = np.mean(rmse_sc_tor[-100:])
             rmse_bonds = np.mean(rmse_bonds[-100:])
+            rmse_sc_blens = np.mean(rmse_sc_blens[-100:])
+            rmse_sc_angs = np.mean(rmse_sc_angs[-100:])
             if len(structure_rmsds) > 0:
                 structure_rmsds = np.mean(structure_rmsds[-100:])
             else:
@@ -673,6 +715,8 @@ class Trainer:
             val_bb_angle_rmse = np.nan
             val_sc_tor_rmse = np.nan
             val_blens_rmse = np.nan
+            val_sc_blens_rmse = np.nan
+            val_sc_ang_rmse = np.nan
             val_struc_rmsd = np.nan
             val_struc_all_rmsds = []
             if val_dataloader is not None and \
@@ -684,6 +728,8 @@ class Trainer:
                 val_bb_angle_rmse = val_results['bb_angle_rmse']
                 val_sc_tor_rmse = val_results['sc_tor_rmse']
                 val_blens_rmse = val_results['blens_rmse']
+                val_sc_blens_rmse = val_results['sc_blens_rmse']
+                val_sc_ang_rmse = val_results['sc_ang_rmse']
                 val_struc_rmsd = val_results['mean_structure_rmsd']
                 val_struc_all_rmsds = val_results['structure_rmsds']
 
@@ -712,6 +758,8 @@ class Trainer:
             test_bb_angle_rmse = np.nan
             test_sc_tor_rmse = np.nan
             test_blens_rmse = np.nan
+            test_sc_blens_rmse = np.nan
+            test_sc_ang_rmse = np.nan
             test_struc_rmsd = np.nan
             new_best = False
             if self.best_val_loss > val_error:
@@ -745,6 +793,8 @@ class Trainer:
                     test_bb_angle_rmse = test_results['bb_angle_rmse']
                     test_sc_tor_rmse = test_results['sc_tor_rmse']
                     test_blens_rmse = test_results['blens_rmse']
+                    test_sc_blens_rmse = test_results['sc_blens_rmse']
+                    test_sc_ang_rmse = test_results['sc_ang_rmse']
                     torch.save(test_results, os.path.join(self.val_out_path, 'test_results.pkl'))
                     
                     # save scatter plot
@@ -754,18 +804,30 @@ class Trainer:
                                               "targets",
                                               "backbone angles")
                     self.logger.log_figure(bb_angle_plot, "backbone_angle_corr", self.epoch, "test")
-                    sc_angle_plot = plot_scatter(test_results['angle_preds'][:,3:], 
+                    sc_tor_plot = plot_scatter(test_results['angle_preds'][:,3:], 
                                               test_results['angle_targets'][:,3:] * 180 / np.pi,
                                               "predictions",
                                               "targets",
                                               "sidechain torsions")
-                    self.logger.log_figure(sc_angle_plot, "sidechain_torsion_corr", self.epoch, "test")
+                    self.logger.log_figure(sc_tor_plot, "sidechain_torsion_corr", self.epoch, "test")
                     blens_plot = plot_scatter(test_results['blens_preds'],
                                               test_results['blens_targets'],
                                               "predictions",
                                               "targets",
                                               "bond lengths")
                     self.logger.log_figure(blens_plot, "blens_corr", self.epoch, "test")
+                    sc_blens_plot = plot_scatter(test_results['sc_blens_preds'],
+                                                 test_results['sc_blens_targets'],
+                                                 "predictions",
+                                                 "targets",
+                                                 "sidechain bond lengths")
+                    self.logger.log_figure(sc_blens_plot, "sc_blens_corr", self.epoch, "test")
+                    sc_ang_plot = plot_scatter(test_results['sc_ang_preds'],
+                                                test_results['sc_ang_targets'],
+                                                "predictions",
+                                                "targets",
+                                                "sidechain bond angles")
+                    self.logger.log_figure(sc_ang_plot, "sc_ang_corr", self.epoch, "test")
                     last_test_epoch = self.epoch
                     # np.save(os.path.join(self.val_out_path, 'test_Ei_epoch%i'%self.epoch), outputs['Ei'])
 
@@ -811,7 +873,13 @@ class Trainer:
                 'test/rmse_sc_tor': test_sc_tor_rmse,
                 'tr/rmse_blens': rmse_bonds,
                 'val/rmse_blens': val_blens_rmse,
-                'test/rmse_blens': test_blens_rmse
+                'test/rmse_blens': test_blens_rmse,
+                "tr/rmse_sc_blens": rmse_sc_blens,
+                "val/rmse_sc_blens": val_sc_blens_rmse,
+                "test/rmse_sc_blens": test_sc_blens_rmse,
+                "tr/rmse_sc_angs": rmse_sc_angs,
+                "val/rmse_sc_angs": val_sc_ang_rmse,
+                "test/rmse_sc_angs": test_sc_ang_rmse
             }
 
             if 'building' in self.mode:
