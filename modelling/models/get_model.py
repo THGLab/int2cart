@@ -47,7 +47,8 @@ def get_model(settings):
     all_predictor_heads['alpha1'] = Sequential(MLP(latent_dim, 1, n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']),
         ScaleShift(default_means["N_CA_CB_bond_angle"], default_stds["N_CA_CB_bond_angle"], True))
 
-    all_predictor_heads['chis'] = [MLP(latent_dim, settings['bins']['angle_bin_count'], n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']) for _ in range(6)]
+    if 'bins' in settings:
+        all_predictor_heads['chis'] = [MLP(latent_dim, settings['bins']['angle_bin_count'], n_hidden=hidden_dim, use_batchnorm=settings['model']['use_batchnorm']) for _ in range(6)]
     needed_predictor_heads = {item: all_predictor_heads[item] for item in settings['model']['outputs']}
     # all_predictor_heads = [n_ca_c_angle_predictor, ca_c_n_angle_predictor, c_n_ca_angle_predictor] +\
     #     sidechain_torsion_predictors + [n_ca_blens_predictor, ca_c_blens_predictor, c_n_blens_predictor] +\

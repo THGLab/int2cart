@@ -53,8 +53,8 @@ class BackboneBuilder(nn.Module):
             angle_preds, all_blens, sc_blens, sc_angs = self.convert_prediction(predictions)
             angle_preds = list(torch.moveaxis(angle_preds, -1, 0)[:, :, :, None] * np.pi / 180)
         else:
-            angle_preds = predictions[:9]
-            blens_preds = predictions[-3:]
+            angle_preds = [predictions["theta1"], predictions["theta2"], predictions["theta3"]]
+            blens_preds = [predictions["d1"], predictions["d2"], predictions["d3"]]
             all_blens = torch.cat(blens_preds, dim=-1)
         all_angles = torch.cat([inputs["phi"].unsqueeze(-1), 
         inputs["psi"].unsqueeze(-1), 
