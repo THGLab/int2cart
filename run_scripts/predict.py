@@ -9,7 +9,6 @@ import argparse
 import yaml
 import torch
 import numpy as np
-import pandas as pd
 from modelling.models.builder import BackboneBuilder
 
 AA_SEQ = "ACDEFGHIKLMNPQRSTVWY"

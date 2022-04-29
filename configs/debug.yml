@@ -1,54 +1,49 @@
 general:
-  device: cuda
-  output: [../local/debug , 1] # root, dir, iter
+  device: cuda # device used for training the network
+  output: [../local/debug , 1] # root of output folder, iteration
 
 data:
-  casp_version: 12
-  thinning: 30
-  scn_data_dir: /home/jerry/data2/protein_building/sidechainnet_data
-  validation_similarity_level: [10, 20, 30, 40, 50]
-  fragment_length: 5
+  casp_version: 12 # the main CASP version of the SidechainNet dataset
+  thinning: 70 # thinning of the SidechainNet dataset
+  scn_data_dir: /home/jerry/data2/protein_building/sidechainnet_data # path to the custom SidechainNet dataset
+  validation_similarity_level: [10, 20, 30, 40, 50] # Combine these similarity validation sets into the test set
 
-bins:
-  angle_bin_count: 180
-  n-ca_bin: [0.95, 2.05, 12]
-  ca-c_bin: [0.95, 2.05, 12]
-  c-n_bin: [0.45, 2.05, 17]
 
 model:
-  n_gaussians: 180
-  gaussian_margin: 10
-  gaussian_normalize: True
-  gaussian_factor: 0.5
+  n_gaussians: 180  # number of gaussian smearing vector size
+  gaussian_margin: 10 # the margin used for circled back angles during gaussian smearing
+  gaussian_normalize: True # whether normalize the gaussian smeared vectors
+  gaussian_factor: 0.5  # sigma value for the gaussians
 
-  recurrent: gru
-  rec_neurons_num: 200
-  rec_stack_size: 3
-  rec_dropout: 0.1
+  recurrent: gru # which type of recurrent cell to use, gru or lstm
+  rec_neurons_num: 200 # number of neurons in recurrent cell
+  rec_stack_size: 3 # number of layers for recurrent stack
+  rec_dropout: 0.1 # dropout value applied to recurrent latent vectors between recurrent layers
 
-  n_filter_layers: 2
-  filter_size: 64
-  use_batchnorm: false
+  n_filter_layers: 2 # number of filter layers in MLP networks
+  filter_size: 64 # number of neurons in MLP networks
+  use_batchnorm: false  # whether use batch normalization or not
 
-  inputs: [omega,]
-  outputs: [d1, d2, d3, theta1, theta2, theta3]
+  inputs: [phi, psi, omega, chi1, aa]  # inputs into the model
+  outputs: [d1, d2, d3, theta1, theta2, theta3, r1, alpha1]  # model outputs
 
 
 
 training:
-  preempt: false
-  epochs: 100
-  batch_size: 128
-  lr: 0.001
-  lr_scheduler: null
-  weight_decay: 1.0e-4
-  optimizer: adam
-  loss_term_weigths: 1
-  rescale_loss_by_lengths: false
+  preempt: false # whether allow preempt and resume training 
+  epochs: 100 # total number of epochs for training the model
+  batch_size: 128  # batch size used for training the model
+  lr: 0.001  # learning rate
+  lr_scheduler: [decay, 0.05] # exponential learning rate decay with alpha=0.05 
+  weight_decay: 1.0e-4  # weight decay value for the optimizer
+  optimizer: adam # which optimizer to use
+  loss_term_weigths: 1  # can be a single number, which means to use this weight for all targets,
+  # or a list of numbers with the same size as the output, specifying weights for different terms
+  rescale_loss_by_lengths: false # whether rescale the loss by the sequence length of the current example
 
 checkpoint:
-  log: 1
-  val: 1
-  test: 1
-  model: 1
-  verbose: false
+  log: 1 # frequency of saving logs
+  val: 1 # frequency of doing validation
+  test: 1 # frequency of evaluating test set performance
+  model: 1  # frequency of saving the model
+  verbose: false  # whether print more detailed training information
