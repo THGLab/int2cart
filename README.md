@@ -18,6 +18,7 @@ An algorithm for predicting protein backbone bond lengths and bond angles from t
 * yaml (5.3.1)
 * pytorch (1.8.1)
 * SidechainNet (https://github.com/THGLab/sidechainnet, modified from [jonathanking's version](https://github.com/jonathanking/sidechainnet))
+* pdbtools (https://github.com/JerryJohnsonLee/pdbtools, modified from [Mike Harm's version](https://github.com/harmslab/pdbtools)), only needed for using `--from_pdb` option
 
 ### Installation steps
 Go to the root folder of the repository (where `setup.py` resides) and run `pip install -e .`. Make sure to switch to the target virtual environment before installation if you want to install the code in a separate environment.
@@ -36,6 +37,9 @@ positional arguments:
   output                The output file name, excluding file extension
 
 optional arguments:
+  --from_pdb FROM_PDB   extract amino acid sequence and torsion angles from
+                        the pdb file instead of providing them through
+                        arguments
   --build, -b           build the structure after predicting bond lengths and
                         bond angles
   --units UNITS, -u UNITS
