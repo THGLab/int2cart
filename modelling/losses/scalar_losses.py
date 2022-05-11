@@ -23,7 +23,7 @@ def numerical_loss(raw_predictions, raw_targets, scaler):
     masked_loss = mask * rescaled_difference ** 2
     return masked_loss
 
-def prepare_losses(settings, angle_digitizer, n_ca_blens_digitizer, ca_c_blens_digitizer, c_n_blens_digitizer, rescale_by_length=False, central_residue=None):
+def prepare_losses(settings, rescale_by_length=False, central_residue=None):
     output_types = settings['model']['outputs']
     loss_term_weights = settings['training']['loss_term_weigths']
     if type(loss_term_weights) is not list:

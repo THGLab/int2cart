@@ -56,17 +56,14 @@ elif optimizer.lower() == 'sgd':
 
 
 # loss
-angle_digitizer = OnehotDigitizer((-179, 179, settings['bins']['angle_bin_count']), binary=False)
+# angle_digitizer = OnehotDigitizer((-179, 179, settings['bins']['angle_bin_count']), binary=False)
 
-n_ca_blens_digitizer = OnehotDigitizer(settings['bins']['n-ca_bin'], binary=False)
-ca_c_blens_digitizer = OnehotDigitizer(settings['bins']['ca-c_bin'], binary=False)
-c_n_blens_digitizer = OnehotDigitizer(settings['bins']['c-n_bin'], binary=False)
+# n_ca_blens_digitizer = OnehotDigitizer(settings['bins']['n-ca_bin'], binary=False)
+# ca_c_blens_digitizer = OnehotDigitizer(settings['bins']['ca-c_bin'], binary=False)
+# c_n_blens_digitizer = OnehotDigitizer(settings['bins']['c-n_bin'], binary=False)
 
 loss_fn = prepare_losses(settings, 
-                         angle_digitizer, 
-                         n_ca_blens_digitizer,
-                         ca_c_blens_digitizer,
-                         c_n_blens_digitizer,
+
                          rescale_by_length=settings['training'].get('rescale_loss_by_lengths', False))
 
 
@@ -82,12 +79,7 @@ trainer = Trainer(
     script_name=__file__,
     initial_lr=settings['training']['lr'],
     lr_scheduler=settings['training']['lr_scheduler'],
-    bin_references={
-        "angles": angle_digitizer.get_reference(),
-        "n_ca_bond_length": n_ca_blens_digitizer.get_reference(),
-        "ca_c_bond_length": ca_c_blens_digitizer.get_reference(),
-        "c_n_bond_length": c_n_blens_digitizer.get_reference()
-    },
+    bin_references=None,
     checkpoint_log=settings['checkpoint']['log'],
     checkpoint_val=settings['checkpoint']['val'],
     checkpoint_test=settings['checkpoint']['test'],
