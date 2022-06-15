@@ -828,7 +828,7 @@ class RecurrentModel(nn.Module):
 
 
         # concatenate all features
-        x = torch.cat(filtered_inputs, dim=2)
+        x = torch.cat(filtered_inputs, dim=-1)
         # mixing filter
         x = self.mixing_filter(x)
 

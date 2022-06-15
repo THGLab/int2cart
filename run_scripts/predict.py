@@ -38,7 +38,7 @@ ONE_TO_THREE_LETTER_MAP = {
 def main(model_addr, seq, tors, output_name, build=True, output_geom=True, units="degree", device="cpu", model_config="../configs/predict.yml"):
     settings = yaml.safe_load(open(model_config, "r"))
     builder = BackboneBuilder(settings)
-    model_state = torch.load(model_addr)["model_state_dict"]
+    model_state = torch.load(model_addr, map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu") )['model_state_dict']
     builder.load_predictor_weights(model_state)
     builder.to(device)
     if np.isnan(tors).any():
