@@ -824,11 +824,34 @@ class RecurrentModel(nn.Module):
 
         if self.input_has_aa:
             res_type_embedded = self.residue_embedding(inputs["res_type"])
+            # print(res_type_embedded)
             filtered_inputs.append(res_type_embedded)
 
 
         # concatenate all features
-        x = torch.cat(filtered_inputs, dim=-1)
+        try:        
+            x = torch.cat(filtered_inputs, dim=2)
+        # this error is expected to occur ocassionally in idpcg integration
+        except RuntimeError:
+            # TODO: correct the last tensor shape/size
+            # issue is not linked to building with fragment sizes of only 1 or 5
+            # issue appears more frequently on "slower" cpu machines
+            # Sample of issue for last size
+            """
+            torch.Size([1, 1, 64])
+            tensor([[[-0.8426, -0.5278, -0.6547,  0.1537,  0.5830,  1.4620,  0.5719,
+                       0.4981, -1.2452,  0.4465,  1.2581,  0.3336, -0.6592,  0.9466,
+                      -0.7535,  0.2393,  0.5005, -0.1276, -0.0110, -1.0571,  0.3948,
+                      -0.0863, -0.4413,  0.4754, -1.4011,  0.7331, -0.1528, -0.4082,
+                      -1.5490, -1.1942, -0.2556,  0.7104,  0.8921, -0.6403,  0.4339,
+                      -0.0873, -0.5529,  0.6479,  0.3692,  0.0864,  0.0166, -0.2111,
+                       0.4515, -0.1969, -0.0136, -1.6877,  0.0125, -0.4943, -0.1743,
+                      -0.9010,  0.9461, -1.3498, -0.0779, -0.2454, -0.0454,  0.1414,
+                      -1.3268,  0.7140, -0.0025, -0.2826, -0.0115, -0.6941, -0.6474,
+                      -1.2374]]], grad_fn=<EmbeddingBackward0>)
+            """
+            return
+            
         # mixing filter
         x = self.mixing_filter(x)
 
@@ -848,7 +871,7 @@ class RecurrentModel(nn.Module):
         # apply layernorm when needed
         if self.norm is not None:
             x = self.norm(x, inputs['lengths'])
-
+        print(x)
         # return latent representation
         return x
 
