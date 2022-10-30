@@ -38,6 +38,9 @@ class BackboneBuilder(nn.Module):
         self.predictor = get_model(settings)
         self.convert_prediction = prediction_conversion_func
 
+    def set_as_eval(self):
+        self.predictor.eval()
+
     def load_predictor_weights(self, model_state):
         self.predictor.load_state_dict(model_state)
 

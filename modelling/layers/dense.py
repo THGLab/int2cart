@@ -2,7 +2,8 @@ from torch import nn
 from torch.nn.init import xavier_uniform_
 from torch.nn.init import zeros_
 
-
+import numpy as np
+import torch
 class Dense(nn.Linear):
     r"""
     Fully connected linear layer with activation function.
@@ -64,6 +65,14 @@ class Dense(nn.Linear):
         if self.bias is not None:
             self.bias_init(self.bias)
 
+    def dense_numpy(self, x):
+        w = self.weight.detach().numpy()
+        b = self.bias.detach().numpy()
+        x = x.detach().numpy()
+        result = np.matmul(x, w.T) + b
+        result = torch.tensor(result, dtype=torch.float)
+        return result
+
     def forward(self, x):
         """
         Parameters
@@ -77,6 +86,7 @@ class Dense(nn.Linear):
         """
         # compute linear layer y = xW^T + b
         x = super(Dense, self).forward(x)
+        # x = self.dense_numpy(x)
 
         # batch normalization
         if self.norm:

@@ -25,7 +25,7 @@ device = [torch.device(dev) for dev in handle_gpu(settings['general']['device'])
 
 
 # data
-train, val, test, _ = load_data(settings, use_debug_dataset=True)
+train, val, test, _ = load_data(settings, use_debug_dataset=debug_mode)
 
 # model
 # model = get_model(settings)

@@ -11,6 +11,7 @@ import torch
 import numpy as np
 from modelling.models.builder import BackboneBuilder
 from modelling.utils.predict import predict
+import os
 
 ONE_TO_THREE_LETTER_MAP = {
     "R": "ARG",
@@ -34,11 +35,15 @@ ONE_TO_THREE_LETTER_MAP = {
     "Y": "TYR",
     "W": "TRP"
 }
+file_path = os.path.dirname(os.path.realpath(__file__))
+default_model_config = os.path.join(file_path, "../configs/predict.yml")
+default_model_path = os.path.join(file_path, "../trained_models/release.tar")
 
-def main(model_addr, seq, tors, output_name, build=True, output_geom=True, units="degree", device="cpu", model_config="../configs/predict.yml"):
+def main(model_addr, seq, tors, output_name, build=True, output_geom=True, units="degree", device="cpu", model_config=default_model_config):
     settings = yaml.safe_load(open(model_config, "r"))
     builder = BackboneBuilder(settings)
-    model_state = torch.load(model_addr)["model_state_dict"]
+    builder.set_as_eval()
+    model_state = torch.load(model_addr, map_location=torch.device("cpu"))["model_state_dict"]
     builder.load_predictor_weights(model_state)
     builder.to(device)
     if np.isnan(tors).any():
@@ -93,8 +98,8 @@ if __name__ == '__main__':
         " Should be one of [degree](default) or [radian]")
     parser.add_argument("--device", "-d", default="cpu", help="the device used for running the model, could be " + 
         "[cpu](default) or [cuda:x] for GPU")
-    parser.add_argument("--config", "-c", default="../configs/predict.yml", help="configuration file specifying model structure")
-    parser.add_argument("--model_addr", "-m", default="../trained_models/release.tar", help="a path specifying the position of trained model")
+    parser.add_argument("--config", "-c", default=default_model_config, help="configuration file specifying model structure")
+    parser.add_argument("--model_addr", "-m", default=default_model_path, help="a path specifying the position of trained model")
     args = parser.parse_args()
 
     output_path = args.output
