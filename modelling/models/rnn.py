@@ -824,11 +824,19 @@ class RecurrentModel(nn.Module):
 
         if self.input_has_aa:
             res_type_embedded = self.residue_embedding(inputs["res_type"])
+            # print(res_type_embedded)
             filtered_inputs.append(res_type_embedded)
 
 
         # concatenate all features
-        x = torch.cat(filtered_inputs, dim=2)
+        try:        
+            x = torch.cat(filtered_inputs, dim=2)
+        # If the input has mismatched shapes, this error will occur and warn the user
+        except RuntimeError as e:
+            print("WARNING: Inputs has mismatched shapes between sequence and torsions")
+            print(e)
+            return
+            
         # mixing filter
         x = self.mixing_filter(x)
 
@@ -848,7 +856,6 @@ class RecurrentModel(nn.Module):
         # apply layernorm when needed
         if self.norm is not None:
             x = self.norm(x, inputs['lengths'])
-
         # return latent representation
         return x
 

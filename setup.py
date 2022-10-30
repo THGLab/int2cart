@@ -40,7 +40,8 @@ if __name__ == "__main__":
         ],
         install_requires=[
             'torch',
-            'future'
+            'future',
+            'pyyaml'
         ],
         zip_safe=False,
     )
