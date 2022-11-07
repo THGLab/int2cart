@@ -29,6 +29,8 @@ n_total_iters = 100000 # 100000
 output_freq = 1000
 show_progress_bar = True
 
+use_int2cart = False
+
 output_prefix = "af2_rg_mc_structures" + "/" + Path(structure).stem.split('-')[1]
 if len(sys.argv) > 2:
     output_prefix += "_" + sys.argv[2]
@@ -55,6 +57,10 @@ seq_mover.add_mover(shear_mover)
 
 mc = CustomMonteCarlo(pose, scorefxn, kT)
 
+if use_int2cart:
+    from int2cart_mover import Int2CartMover
+    int2cart_mover = Int2CartMover(pose.sequence(), device="cpu")
+
 total_scores = []
 vdw_scores = []
 rg_scores = []
@@ -68,6 +74,9 @@ for n in iterator:
     small_mover.apply(pose)
     bfactor_movemap.advance()
     shear_mover.apply(pose)
+
+    if use_int2cart:
+        int2cart_mover.apply(pose)
     mc.boltzmann(pose)
     if n % output_freq == 0:
         total_score = scorefxn(pose)
