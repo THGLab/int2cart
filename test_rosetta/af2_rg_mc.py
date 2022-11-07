@@ -3,19 +3,21 @@ from pyrosetta import *
 from pyrosetta.teaching import *
 import numpy as np
 import sys
-sys.path.append("/home/jerry/data2/protein_building/nn_modelling/rosetta")
+sys.path.append("../rosetta")
 
 from scorefxn import RelRgScore, VDWScore, CompositeScore, rg_scorefxn
 from monte_carlo import CustomMonteCarlo
 from movemaps import BFactorMoveMap
 import pandas as pd
 from tqdm import tqdm
+from pathlib import Path
 
-structure = "/home/jerry/data2/protein_building/human_proteins/AF-Q99680-F1-model_v3.pdb"
+
+structure = "/global/scratch/users/jerry-li1996/int2cart/human_proteins/AF-Q99680-F1-model_v3.pdb"
 if len(sys.argv) > 1:
-    structure = sys.argv[1]
+    structure = Path("/global/scratch/users/jerry-li1996/int2cart/human_proteins") / sys.argv[1]
 
-pose = pyrosetta.pose_from_pdb(structure)
+pose = pyrosetta.pose_from_pdb(str(structure))
 
 kT = 1.0
 n_moves = 1
@@ -23,11 +25,14 @@ max_move_angle_H = 0
 max_move_angle_E = 2.5
 max_move_angle_L = 3
 
-n_total_iters = 10000 # 100000
+n_total_iters = 100000 # 100000
 output_freq = 1000
 show_progress_bar = True
 
-output_prefix = "Q99680"
+output_prefix = "af2_rg_mc_structures" + "/" + Path(structure).stem.split('-')[1]
+if len(sys.argv) > 2:
+    output_prefix += "_" + sys.argv[2]
+
 
 scorefxn = CompositeScore([RelRgScore(), VDWScore()], [100, 1])
 

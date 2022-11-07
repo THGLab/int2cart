@@ -1,17 +1,23 @@
 num_total_executions=1000
-output_name=frag+int2cart
+output_name=frag
+n_gpu=0
 command="python low_res_fold.py $output_name"
 mkdir -p $output_name
 mkdir -p $output_name/logs
-echo "all:\tjob1\t\\" > Makefile
+echo -e "all:\tjob1\t\\" > Makefile
 for i in `seq 2 $num_total_executions`
 do
-echo "\tjob$i\t\\" >> Makefile
+echo -e "\tjob$i\t\\" >> Makefile
 done
 echo " " >> Makefile
 for i in `seq 1 $num_total_executions`
 do
 echo "job$i:" >> Makefile
-cuda_idx=$((i%4))
-echo "\t$command $i cuda:$cuda_idx > $output_name/logs/$i.out" >> Makefile
+if [ $n_gpu == 0 ]; then
+device=cpu
+else
+cuda_idx=$((i%$n_gpu))
+device="cuda:$cuda_idx"
+fi
+echo -e "\t$command $i $device > $output_name/logs/$i.out" >> Makefile
 done

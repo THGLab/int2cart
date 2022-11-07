@@ -15,18 +15,20 @@ import random
 import sys
 import pickle
 
-sys.path.append("/home/jerry/data2/protein_building/nn_modelling/rosetta")
+sys.path.append("../rosetta")
 from int2cart_mover import Int2CartMover
 
 post_stage_iter = 1000  # ~100 it/s for int2cart
 frag_iter = 500000  # ~1800 it/s
 
-total_iter = 100000
+#total_iter = 100000
+total_iter = 500000
 
 kT = 1.0
 show_progress_bar = True
 use_int2cart = False
-nn_device = "cuda:0"
+# nn_device = "cuda:0"
+nn_device = 'cpu'
 
 reference_pose = pose_from_pdb("1ubq.pdb")
 
