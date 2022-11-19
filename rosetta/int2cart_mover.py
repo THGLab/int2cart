@@ -21,7 +21,7 @@ default_model_config = os.path.join(file_path, "../configs/predict.yml")
 default_model_path = os.path.join(file_path, "../trained_models/release.tar")
 
 class Int2CartMover(pyrosetta.rosetta.protocols.moves.Mover):
-    def __init__(self, seq, device="cpu", model_addr=default_model_path, model_config=default_model_config) -> None:
+    def __init__(self, seq, n_move=None, device="cpu", model_addr=default_model_path, model_config=default_model_config) -> None:
         pyrosetta.rosetta.protocols.moves.Mover.__init__(self)
         # Create model and load state dict
         settings = yaml.safe_load(open(model_config, "r"))
@@ -30,6 +30,7 @@ class Int2CartMover(pyrosetta.rosetta.protocols.moves.Mover):
         self.predictor.to(device)
         self.predictor.eval()
         self.device = device
+        self.n_move = n_move  # how many residues of bond lengths and bond angles to modify
 
         # Save residue types as torch tensor to be reused
         self.seq_len = len(seq)
@@ -61,13 +62,19 @@ class Int2CartMover(pyrosetta.rosetta.protocols.moves.Mover):
         return predictions
 
 
-    def apply(self, pose):
+    def apply(self, pose, residues_to_move=None):
         phis, psis, omegas = self.get_torsion_from_pose(pose)
         predictions = self.predict(phis, psis, omegas)
-
+        # prepare the residues to move based on n_move
+        if residues_to_move is None:
+            residues_to_move = range(1, self.seq_len + 1)
+            if self.n_move is not None:
+                residues_to_move = np.random.choice(residues_to_move, self.n_move, replace=False)
         # Modify bond lengths and bond angles using predictions
         conf = pose.conformation()
         for i in range(1, self.seq_len + 1):
+            if i not in residues_to_move:
+                continue
             # Define the AtomIDs to be used
             N = AtomID(pose.residue(i).atom_index("N"), i)
             CA = AtomID(pose.residue(i).atom_index("CA"), i)
@@ -94,8 +101,8 @@ if __name__ == "__main__":
     from pyrosetta import *
     init()
     
-    pose = pose_from_pdb("../../rosetta/1ubq.pdb")
-    mover = Int2CartMover(pose.sequence(), device="cpu")
-    pose.dump_pdb("before_move.pdb")
-    mover.apply(pose)
-    pose.dump_pdb("after_move.pdb")
+    pose = pose_from_pdb("../../pdbs/1ubq.pdb")
+    mover = Int2CartMover(pose.sequence(), device="cpu", n_move=10)
+    pose.dump_pdb("../../pdbs/before_move.pdb")
+    mover.apply(pose, residues_to_move=[15,50])
+    pose.dump_pdb("../../pdbs/after_move_15_50.pdb")
