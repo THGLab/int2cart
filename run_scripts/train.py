@@ -87,7 +87,7 @@ trainer = Trainer(
     verbose=settings['checkpoint']['verbose'],
     preempt=settings['training']['preempt'],
     debug=debug_mode,
-    mode="scalar+building"
+    mode="scalar"
 )
 
 trainer.print_layers()

@@ -389,6 +389,23 @@ class Trainer:
                         "lengths": torch.tensor(batch.lengths)}
         self.logger.log_graph(save_model, batch_inputs)
 
+    def extend_batch_inputs(self, batch_inputs):
+        batch_size = batch_inputs["phi"].shape[0]
+        for key in list(batch_inputs):
+            if key not in ["res_type", "lengths"]:
+                # this is an angle input
+                angle_input = batch_inputs[key]
+                previous_data = torch.cat([torch.zeros((batch_size, 1), device=angle_input.device), angle_input[:, :-1]], dim=1)
+                next_data = torch.cat([angle_input[:, 1:], torch.zeros((batch_size, 1), device=angle_input.device)], dim=1)
+                length_mask = torch.zeros_like(angle_input)
+                for exp_idx, length in enumerate(batch_inputs["lengths"]):
+                    length_mask[exp_idx, :length] = 1
+                previous_data = previous_data * length_mask
+                next_data = next_data * length_mask
+                batch_inputs[key + "_i-1"] = previous_data
+                batch_inputs[key + "_i+1"] = next_data
+        return batch_inputs
+
     def predict_and_evaulate(self, batch, use_builder=False, build_by_block=None, central_residue=None, sample_weights=None):
         batch_inputs = {"phi": batch.angs[:, :, 0].to(self.device[0]),
                         "psi": batch.angs[:, :, 1].to(self.device[0]),
@@ -396,6 +413,7 @@ class Trainer:
                         "chi1": batch.angs[:, :, 6].to(self.device[0]),
                         "res_type": torch.argmax(batch.seqs, axis=-1).to(self.device[0]),
                         "lengths": batch.lengths}
+        batch_inputs = self.extend_batch_inputs(batch_inputs)
         build_range = None
         if build_by_block is not None:
             build_start = [np.random.randint(0, max(l - build_by_block, 1)) for l in batch.lengths]

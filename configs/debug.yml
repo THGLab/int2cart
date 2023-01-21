@@ -1,6 +1,6 @@
 general:
   device: cuda # device used for training the network
-  output: [../local/debug , 1] # root of output folder, iteration
+  output: [../local/window3 , 1] # root of output folder, iteration
 
 data:
   casp_version: 12 # the main CASP version of the SidechainNet dataset
@@ -24,8 +24,8 @@ model:
   filter_size: 64 # number of neurons in MLP networks
   use_batchnorm: false  # whether use batch normalization or not
 
-  inputs: [phi, psi, omega, chi1, aa]  # inputs into the model
-  outputs: [d1, d2, d3, theta1, theta2, theta3, r1, alpha1]  # model outputs
+  inputs: [phi, psi, omega, aa, phi_i-1, phi_i+1, psi_i-1, psi_i+1, omega_i-1, omega_i+1]  # inputs into the model
+  outputs: [d1, d2, d3, theta1, theta2, theta3]  # model outputs
 
 
 
