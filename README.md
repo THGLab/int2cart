@@ -11,6 +11,10 @@ An algorithm for predicting protein backbone bond lengths and bond angles from t
 * Julie D Forman-Kay
 * Teresa Head-Gordon
 
+## Citation
+Please cite Int2Cart as:
+Li J, Zhang O, Lee S, et al. Learning Correlations between Internal Coordinates to Improve 3D Cartesian Coordinates for Proteins[J]. *J. Chem. Theory Comput.*, 2023. https://doi.org/10.1021/acs.jctc.2c01270
+
 ## Installation
 ### Required packages
 * Python (3.8.0)
@@ -80,3 +84,4 @@ pose.dump_pdb("pose_after_int2cart_move.pdb")
 * Make sure SidechainNet package is installed and patching script (under `tools` folder have been executed)
 * Prepare a yml file similar to `configs/debug.yml` and change parameters as needed
 * run `run_scripts/train.py [config_file]` to train the model
+
